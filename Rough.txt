@@ -1,0 +1,127 @@
+Auth Routes (/api/auth/)
+
+POST	/api/auth/register	Register new user
+POST	/api/auth/login	    Log in user
+GET	    /api/auth/me	    Get current user info
+
+
+User Routes (/api/users/)
+
+GET	/api/users	                Get all users (for searching)
+GET	/api/users/:id	            Get specific user
+PUT	/api/users/update-profile	Update name, email, image, etc.
+GET	/api/users/status/:id	    Get online status / last seen
+
+
+Chat Request Routes (/api/chat-requests/)
+
+POST	/api/chat-requests/send	        Send request (1-on-1 or group)
+GET	    /api/chat-requests	            Get all requests for a user
+PUT	    /api/chat-requests/:id/accept	Accept request
+PUT	    /api/chat-requests/:id/reject	Reject request
+
+
+
+ Chat Routes (/api/chats/)
+
+POST	/api/chats	            Create chat (only if group request accepted)
+GET	    /api/chats	            Get all chats of a user
+GET	    /api/chats/:chatId	        Get specific chat data
+PUT	    /api/chats/:chatId/rename	Rename group
+PUT	    /api/chats/:chatId/add-user	    Add user to existing group (manually)
+PUT	    /api/chats/:chatId/remove-user	Remove user from group
+
+
+
+Message Routes (/api/messages/)
+
+POST	/api/messages/send	    Send new message (text/media/location)
+GET	    /api/messages/:chatId	Get all messages for a specific chat
+PUT	    /api/messages/:id/status	Update message status (seen/delivered/etc.)
+
+
+File Upload Route (/api/upload/)
+
+POST	/api/upload/	Upload image/video/file
+
+
+
+####---frontend-Routes---####
+
+
+Public Routes
+
+/login	    <LoginPage />
+/register	<RegisterPage />
+
+
+Protected Routes
+
+/ or /chats	        <ChatPage />
+/chat/:chatId	    <ChatBox /> or similar
+/requests	        <ChatRequestsPage />
+/groups/new	        <CreateGroupPage />
+/profile	        <ProfilePage />
+/user/:userId	    <UserProfilePage />
+/media/:messageId	<MediaViewer /> (optional)
+
+
+Admin/Settings (Optional)
+
+/settings	                <SettingsPage />
+/groups/:groupId/settings	<GroupSettings />
+
+
+
+
+########### Schemas ############
+
+userSchema({
+    fullname,
+    username,
+    avatar,
+    password,
+    email,
+    contacts[],
+    blockedUser,
+    isOnline
+})
+
+
+
+
+msgSchema({
+    chatid,
+    senderid,
+    msgType,
+    time,
+    content{
+        text,
+        mediaUrl,
+        filename,
+        fileSize,
+        location{
+            lat, 
+            lang,
+            address
+        }
+    }
+})
+
+
+
+
+chatSchema({
+    type,
+    participants{
+        userid,
+        role,
+        joinedAt,
+    },
+    groupName,
+    groupDescription,
+    groupAvatar,
+    createdBy,
+    lastmsg,
+    //group
+})

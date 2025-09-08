@@ -1,0 +1,14 @@
+// multer.js
+import multer from "multer";
+
+const multerUpload = multer({
+  storage: multer.memoryStorage(), // ✅ keep files in memory
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+const singleAvatar = multerUpload.single("avatar");
+const attachmentFiles = multerUpload.array("files");
+
+export { singleAvatar, attachmentFiles };
