@@ -11,6 +11,8 @@ import Message from "../models/msg.model.js";
 import { emitEvent } from "../utils/helpers.js";
 import User from "../models/user.model.js";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
+import ChatRequest from "../models/chatrequest.model.js";
+import { sendFriendRequest } from "./user.controller.js";
 
 // ############----- create a chat
 
@@ -41,18 +43,154 @@ export async function createGroupChat(req, res, next) {
 
 // ############----- Get all chats of a user
 
-export async function getAllChat(req, res, next) {
+export async function getMyChats(req, res, next) {
   const chats = await Chat.find({
     members: { $in: [req.user] },
-  }).populate("members", "fullName username avatar");
+  }).populate("members").populate("creator","fullName");
 
   if (!chats) return next(new customError("error fetching chats", 400));
 
   return res.status(201).json({
     success: true,
-    message: "here are the chats",
     chats: chats,
   });
+}
+
+// ############----- add member
+
+
+
+/*
+
+export async function findUsers(req, res, next) {
+  try {
+    const query = req.query.q?.trim();
+    if (!query) {
+      return res.status(400).json({ message: "Search query is required" });
+    }
+
+    // just get member ids (no populate needed here)
+    const chats = await Chat.find(
+      { members: { $in: [req.user] }},
+      "members"
+    );
+
+    const sentFriendRequests = await ChatRequest.find(
+      { sender: req.user},
+      "receiver"
+    );
+
+    const filteredReq = sentFriendRequests.map(el => el.receiver);
+
+    const otherUserIds = chats.flatMap(chat =>
+      chat.members.filter(id => id.toString() !== req.user.toString())
+    );
+
+    const excludedIds = [...otherUserIds, ...filteredReq, req.user];
+
+    const users = await User.find({
+      $and: [
+        {
+          $or: [
+            { username: { $regex: query, $options: "i" } },
+            { email: { $regex: query, $options: "i" } },
+          ],
+        },
+        { _id: { $nin: excludedIds } }
+      ],
+    });
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "No user found" });
+    }
+
+    res.status(200).json(users);
+  } catch (err) {
+    next(err);
+  }
+}
+*/
+
+export async function findUsers(req, res, next) {
+  try {
+    const query = req.query.q?.trim();
+    
+    // Return empty array for empty queries instead of error
+    if (!query) {
+      return res.status(200).json([]);
+    }
+
+    // Add minimum query length to prevent too broad searches
+    if (query.length < 2) {
+      return res.status(200).json([]);
+    }
+
+    // Add cache control headers to prevent caching issues
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    // Get only one-on-one chats (groupChat: false or not set)
+    const oneOnOneChats = await Chat.find(
+      { 
+        members: { $in: [req.user] },
+        $or: [
+          { groupChat: false },
+          { groupChat: { $exists: false } }
+        ]
+      },
+      "members"
+    ).lean(); // Add .lean() for better performance
+
+    // Get pending friend requests we've sent
+    const sentFriendRequests = await ChatRequest.find(
+      { sender: req.user },
+      "receiver"
+    ).lean(); // Add .lean() for better performance
+
+    const pendingRequestReceivers = sentFriendRequests.map(el => el.receiver.toString());
+
+    // Extract user IDs from one-on-one chats only
+    const directChatUserIds = oneOnOneChats.flatMap(chat =>
+      chat.members
+        .filter(id => id.toString() !== req.user.toString())
+        .map(id => id.toString()) // Ensure string comparison
+    );
+
+    // Exclude: direct chat users, pending request receivers, and current user
+    const excludedIds = [
+      ...directChatUserIds, 
+      ...pendingRequestReceivers, 
+      req.user.toString() // Ensure string
+    ];
+
+    // Build search regex with word boundaries for more precise matching
+    const searchRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+    const users = await User.find({
+      $and: [
+        {
+          $or: [
+            { username: { $regex: searchRegex } },
+            { email: { $regex: searchRegex } },
+            { fullName: { $regex: searchRegex } },
+          ],
+        },
+        { _id: { $nin: excludedIds } }
+      ],
+    })
+    .select('username email fullName avatar') // Only select needed fields
+    .limit(20) // Limit results to prevent performance issues
+    .lean(); // Better performance
+
+    // Always return an array (empty if no results)
+    res.status(200).json(users);
+    
+  } catch (err) {
+    console.error('Error in findUsers:', err);
+    // Return empty array on error instead of throwing
+    res.status(500).json({ message: "Internal server error" });
+  }
 }
 
 // ############----- add member
@@ -354,30 +492,19 @@ export async function deleteChat(req, res, next) {
 }
 
 export async function getAllMessagesOfAchat(req, res, next) {
-  const { chatId, page = 1 } = req.body;
+  // const { chatId, page = 1 } = req.body;
+  const chatId = req.params.id;
 
-  if (!chatId) {
-    return next(new customError("chatId id required", 400));
-  }
+  if (!chatId) return next(new customError("chatId id required", 400));
 
-  const resultPerPage = 20;
+  // const resultPerPage = 20;
 
-  const skip = (page - 1) * resultPerPage;
+  // const skip = (page - 1) * resultPerPage;
 
-  const [messages, totalMsgCount] = await Promise.all([
-    Message.find({ chat: chatId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(resultPerPage)
-      .populate("sender", "fullName avatar"),
-    Message.countDocuments({ chat: chatId }),
-  ]);
-
-  const totalPages = Math.ceil(totalMsgCount / resultPerPage);
-
+  const messages = await Message.find({ chat: chatId })
+// console.log("reached", messages)
   return res.status(200).json({
     success: true,
-    chat: messages.reverse(),
-    totalPages,
+    chat: messages,
   });
 }

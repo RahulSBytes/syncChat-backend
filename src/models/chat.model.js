@@ -2,9 +2,7 @@ import mongoose from "mongoose";
 
 const chatSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-    },
+    name: String,
     groupChat: {
       type: Boolean,
       default: false,
@@ -19,10 +17,26 @@ const chatSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    lastMessage: {
+      text: String,
+      senderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      senderName: String,
+      timestamp: Date,
+      messageType: {
+        type: String,
+        enum: ["text", "image", "file", "audio"],
+        default: "text",
+      },
+      isDeleted: { type: Boolean, default: false },
+    },
+
+    lastMessageTime: Date,
   },
   { timestamps: true }
 );
-
 
 // // chat handler
 // function validateChatData(data, next) {
@@ -37,7 +51,6 @@ const chatSchema = new mongoose.Schema(
 //   }
 //   next();
 // }
-
 
 // chatSchema.pre(
 //   ["save", "findOneAndUpdate", "updateOne", "updateMany"],

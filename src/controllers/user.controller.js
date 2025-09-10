@@ -17,6 +17,9 @@ export async function getMyProfile(req, res, next) {
   });
 }
 
+
+
+
 export async function searchUser(req, res, next) {
   const { name } = req.body || {};
 
@@ -58,8 +61,22 @@ export async function searchUser(req, res, next) {
   });
 }
 
+
+
+export async function getAllFriendRequest(req, res, next) {
+  const chats = await ChatRequest.findById(req.user);
+  if (!chats)
+    return next(
+      new customError("error fetching sent friend requests ::", chats)
+    );
+  return res.status(200).json({
+    success: true,
+    data: chats,
+  });
+}
+
 export async function sendFriendRequest(req, res, next) {
-  const { userId } = req.body || {};
+  const userId = req.query.q;
   if (!userId) return next(new customError("must provide reciever's id", 400));
 
   const request = await ChatRequest.findOne({

@@ -17,6 +17,12 @@ const createSingleChats = async (numChats) => {
         chatsPromise.push(
           Chat.create({
             members: [users[x], users[y]],
+            lastMessage: {
+              text: faker.lorem.sentence(),
+              senderId: users[x],
+              senderName: faker.person.fullName(),
+              timestamp: faker.date.past(),
+            },
           })
         );
       }
@@ -39,7 +45,7 @@ const createGroupChats = async (numChats) => {
     const chatsPromise = [];
 
     for (let i = 0; i < numChats; i++) {
-      const numMembers = simpleFaker.number.int({ min: 3, max: users.length });
+      const numMembers = simpleFaker.number.int({ min: 3, max: 8 });
       const members = [];
 
       for (let i = 0; i < numMembers; i++) {
@@ -57,6 +63,12 @@ const createGroupChats = async (numChats) => {
         name: faker.lorem.words(1),
         members,
         creator: members[0],
+        lastMessage: {
+              text: faker.lorem.sentence(),
+              senderId: members[0],
+              senderName: faker.person.fullName(),
+              timestamp: faker.date.past(),
+            },
       });
 
       chatsPromise.push(chat);
@@ -128,8 +140,12 @@ const createMessagesInAChat = async (chatId, numMessages) => {
       messagesPromise.push(
         Message.create({
           chat: chatId,
+          text : faker.lorem.sentence(),
           sender: randomUser,
-          attachments: faker.lorem.sentence(),
+          attachments: {
+            public_id : faker.string.uuid(),
+            url : faker.image.avatar()
+          },
         })
       );
     }

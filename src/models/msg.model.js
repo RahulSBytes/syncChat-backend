@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 const messageSchema = new mongoose.Schema(
   {
     chat: {
-      // which chat this msg belongs to
       type: mongoose.Schema.Types.ObjectId,
       ref: "Chat",
       required: true,

@@ -23,6 +23,8 @@ import { socketAuthenticator } from "./middleware/isAuthenticated.js";
 import { getSockets } from "./utils/helpers.js";
 import { NEW_MESSAGE, NEW_MESSAGE_ALERT } from "../constants/events.js";
 import Message from "./models/msg.model.js";
+import { createGroupChats, createMessages, createMessagesInAChat, createSingleChats } from "../seeders/chat.js";
+import { createUser } from "../seeders/user.js";
 
 const app = express();
 const server = createServer(app);
@@ -44,6 +46,12 @@ app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
 //------- Routes
+
+// createMessages(100);
+// createUser(30)
+// createSingleChats(30)
+// createGroupChats(30)
+// createMessagesInAChat('68c132caf94b1217d59b6408',60)
 
 app.get("/", (req, res) => {
   res.send("base route");
