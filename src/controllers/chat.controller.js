@@ -177,7 +177,7 @@ export async function addMembers(req, res, next) {
     { $addToSet: { members: userId } }
   );
 
-  console.log(addeduserdata);
+ 
 
   emitEvent(req, ALERT, chat.members, "the user added sucessfully");
   emitEvent(req, REFETCH_CHATS, chat.members);
@@ -271,7 +271,7 @@ export async function leaveGroup(req, res, next) {
 // ############-----delete group
 
 export async function deleteGroup(req, res, next) {
-  // console.log(req.body)
+
   const { chatId } = req.body;
   const userId = req.user;
 
@@ -306,7 +306,6 @@ export async function sendMessage(req, res, next) {
   const files = req.files || [];
   const text = req.body.text || "";
 
-  console.log("text :: ", text);
 
   if (files.length < 1 && !text) {
     return next(new customError("please provide something", 404));
@@ -316,7 +315,6 @@ export async function sendMessage(req, res, next) {
     return next(new customError("Files can't be more than 5", 400));
   }
 
-  // console.log(chatId);
 
   const [chat, me] = await Promise.all([
     Chat.findById(chatId),
@@ -337,8 +335,7 @@ export async function sendMessage(req, res, next) {
       chat: chatId,
     };
     
-    // console.log("attachments :: ", attachments);
-    console.log("messageForDB :: ", messageForDB);
+
 
     message = await Message.create(messageForDB);
   } catch (error) {
@@ -465,7 +462,6 @@ export async function getAllMessagesOfAchat(req, res, next) {
   // const skip = (page - 1) * resultPerPage;
 
   const messages = await Message.find({ chat: chatId });
-  // console.log("reached", messages)
   return res.status(200).json({
     success: true,
     chat: messages,

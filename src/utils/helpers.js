@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import { userSocketIDs } from "../index.js";
 import { v4 as uuid } from "uuid";
 import { cloudinary } from "../utils/cloudinaryconfig.js";
+import path from "path";
 
 const cookieOptions = {
   maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -71,12 +72,14 @@ export const uploadFilesToCloudinary = async (files = []) => {
       fileType = "raw";
     }
 
+    const ext = path.extname(file.originalname).toLowerCase();
+
     return new Promise((resolve, reject) => {
       cloudinary.uploader.upload(
         getBase64(file),
         {
           resource_type: resourceType,
-          public_id: uuid(),
+          public_id: ext == ".pdf" ? uuid() : `${uuid()}${ext}`,
           type: "upload",
         },
         (error, result) => {
