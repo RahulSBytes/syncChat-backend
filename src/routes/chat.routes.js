@@ -10,7 +10,7 @@ import {
   leaveGroup,
   removeMember,
   renameGroup,
-  sendAttachment,
+  sendMessage,
   findUsers,
 } from "../controllers/chat.controller.js";
 import isAuthenticated from "../middleware/isAuthenticated.js";
@@ -27,7 +27,7 @@ router.get("/findUser", asyncWrapper(findUsers) );
 router.patch("/removemember", removeMember);
 router.patch("/leavegroup", leaveGroup);
 router.delete("/deletegroup", deleteGroup);
-router.post("/sendattachment", attachmentFiles, sendAttachment);
+router.post("/sendMessage/:chatId", attachmentFiles, sendMessage);
 router.patch("/renamegroup", renameGroup);
 router.get("/getchatdetail", getChatDetail);
 router.delete("/deletechat", deleteChat);

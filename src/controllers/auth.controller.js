@@ -51,7 +51,6 @@ export async function loginUser(req, res, next) {
   }
   const { username, password } = req.body;
   const user = await User.findOne({ username }).select("+password");
-
   if (!user) return next(new customError("invalid credential", 404));
   const isMatched = await compare(password, user.password);
   if (!isMatched)

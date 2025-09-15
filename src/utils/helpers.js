@@ -1,13 +1,13 @@
-import jwt from 'jsonwebtoken'
-import { userSocketIDs } from '../index.js';
+import jwt from "jsonwebtoken";
+import { userSocketIDs } from "../index.js";
 import { v4 as uuid } from "uuid";
-import {cloudinary} from '../utils/cloudinaryconfig.js'
+import { cloudinary } from "../utils/cloudinaryconfig.js";
 
 const cookieOptions = {
- maxAge: 7 * 24 * 60 * 60 * 1000,
-  sameSite: "lax",  
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  sameSite: "lax",
   httpOnly: true,
-  secure: false, 
+  secure: false,
 };
 
 function sendToken(res, savedUserData) {
@@ -16,21 +16,17 @@ function sendToken(res, savedUserData) {
     success: true,
     token,
     savedUserData,
-  });  // sending the response as well as setting the cookie
+  }); // sending the response as well as setting the cookie
 }
 
-
-const emitEvent = (req, event, users, data ='')=>{
+const emitEvent = (req, event, users, data = "") => {
   console.log("event emitted", event);
-}
+};
 
 const getSockets = (users = []) => {
   const sockets = users.map((user) => userSocketIDs.get(user.toString()));
   return sockets;
 };
-
-
-
 
 // Convert file buffer to base64 string
 const getBase64 = (file) => {
@@ -38,9 +34,35 @@ const getBase64 = (file) => {
 };
 
 
+function formatFileSize(bytes) {
+  let size, unit;
+
+  if (bytes < 1024) {
+    size = bytes;
+    unit = "B";
+  } else if (bytes < 1024 * 1024) {
+    size = bytes / 1024;
+    unit = "KB";
+  } else {
+    size = bytes / (1024 * 1024);
+    unit = "MB";
+  }
+
+  size = size % 1 === 0 ? size.toFixed(0) : size.toFixed(2);
+  return `${size} ${unit}`;
+}
+
+
 // Upload multiple files to Cloudinary manually
 export const uploadFilesToCloudinary = async (files = []) => {
   const uploadPromises = files.map((file) => {
+    const typeMap = {
+      image: "image",
+      video: "video",
+      audio: "audio",
+    };
+    const fileType = typeMap[file.mimetype.split("/")[0]] || "raw";
+
     return new Promise((resolve, reject) => {
       cloudinary.uploader.upload(
         getBase64(file),
@@ -50,7 +72,7 @@ export const uploadFilesToCloudinary = async (files = []) => {
         },
         (error, result) => {
           if (error) return reject(error);
-          resolve(result);
+          resolve({ ...result, fileType, filename: file.originalname });
         }
       );
     });
@@ -58,10 +80,12 @@ export const uploadFilesToCloudinary = async (files = []) => {
 
   try {
     const results = await Promise.all(uploadPromises);
-
     const formattedResults = results.map((result) => ({
       public_id: result.public_id,
       url: result.secure_url,
+      fileType: result.fileType,
+      fileSize: formatFileSize(result.bytes),
+      filename: result.filename,
     }));
     return formattedResults;
   } catch (err) {
@@ -72,5 +96,4 @@ export const uploadFilesToCloudinary = async (files = []) => {
 
 
 
-
-export {cookieOptions, sendToken, emitEvent, getSockets}
+export { cookieOptions, sendToken, emitEvent, getSockets };

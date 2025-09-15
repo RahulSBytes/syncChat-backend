@@ -8,11 +8,12 @@ import {
 import { customError } from "../middleware/error.js";
 import Chat from "../models/chat.model.js";
 import Message from "../models/msg.model.js";
-import { emitEvent } from "../utils/helpers.js";
+import { emitEvent, uploadFilesToCloudinary } from "../utils/helpers.js";
 import User from "../models/user.model.js";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import ChatRequest from "../models/chatrequest.model.js";
 import { sendFriendRequest } from "./user.controller.js";
+import { attachmentFiles } from "../middleware/multer.js";
 
 // ############----- create a chat
 
@@ -46,7 +47,9 @@ export async function createGroupChat(req, res, next) {
 export async function getMyChats(req, res, next) {
   const chats = await Chat.find({
     members: { $in: [req.user] },
-  }).populate("members").populate("creator","fullName");
+  })
+    .populate("members")
+    .populate("creator", "fullName");
 
   if (!chats) return next(new customError("error fetching chats", 400));
 
@@ -58,63 +61,10 @@ export async function getMyChats(req, res, next) {
 
 // ############----- add member
 
-
-
-/*
-
 export async function findUsers(req, res, next) {
   try {
     const query = req.query.q?.trim();
-    if (!query) {
-      return res.status(400).json({ message: "Search query is required" });
-    }
 
-    // just get member ids (no populate needed here)
-    const chats = await Chat.find(
-      { members: { $in: [req.user] }},
-      "members"
-    );
-
-    const sentFriendRequests = await ChatRequest.find(
-      { sender: req.user},
-      "receiver"
-    );
-
-    const filteredReq = sentFriendRequests.map(el => el.receiver);
-
-    const otherUserIds = chats.flatMap(chat =>
-      chat.members.filter(id => id.toString() !== req.user.toString())
-    );
-
-    const excludedIds = [...otherUserIds, ...filteredReq, req.user];
-
-    const users = await User.find({
-      $and: [
-        {
-          $or: [
-            { username: { $regex: query, $options: "i" } },
-            { email: { $regex: query, $options: "i" } },
-          ],
-        },
-        { _id: { $nin: excludedIds } }
-      ],
-    });
-
-    if (users.length === 0) {
-      return res.status(404).json({ message: "No user found" });
-    }
-
-    res.status(200).json(users);
-  } catch (err) {
-    next(err);
-  }
-}
-*/
-
-export async function findUsers(req, res, next) {
-  try {
-    const query = req.query.q?.trim();
-    
     // Return empty array for empty queries instead of error
     if (!query) {
       return res.status(200).json([]);
@@ -126,18 +76,15 @@ export async function findUsers(req, res, next) {
     }
 
     // Add cache control headers to prevent caching issues
-    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.set('Expires', '0');
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
 
     // Get only one-on-one chats (groupChat: false or not set)
     const oneOnOneChats = await Chat.find(
-      { 
+      {
         members: { $in: [req.user] },
-        $or: [
-          { groupChat: false },
-          { groupChat: { $exists: false } }
-        ]
+        $or: [{ groupChat: false }, { groupChat: { $exists: false } }],
       },
       "members"
     ).lean(); // Add .lean() for better performance
@@ -148,24 +95,30 @@ export async function findUsers(req, res, next) {
       "receiver"
     ).lean(); // Add .lean() for better performance
 
-    const pendingRequestReceivers = sentFriendRequests.map(el => el.receiver.toString());
+    const pendingRequestReceivers = sentFriendRequests.map((el) =>
+      el.receiver.toString()
+    );
 
     // Extract user IDs from one-on-one chats only
-    const directChatUserIds = oneOnOneChats.flatMap(chat =>
-      chat.members
-        .filter(id => id.toString() !== req.user.toString())
-        .map(id => id.toString()) // Ensure string comparison
+    const directChatUserIds = oneOnOneChats.flatMap(
+      (chat) =>
+        chat.members
+          .filter((id) => id.toString() !== req.user.toString())
+          .map((id) => id.toString()) // Ensure string comparison
     );
 
     // Exclude: direct chat users, pending request receivers, and current user
     const excludedIds = [
-      ...directChatUserIds, 
-      ...pendingRequestReceivers, 
-      req.user.toString() // Ensure string
+      ...directChatUserIds,
+      ...pendingRequestReceivers,
+      req.user.toString(), // Ensure string
     ];
 
     // Build search regex with word boundaries for more precise matching
-    const searchRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const searchRegex = new RegExp(
+      query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "i"
+    );
 
     const users = await User.find({
       $and: [
@@ -176,18 +129,17 @@ export async function findUsers(req, res, next) {
             { fullName: { $regex: searchRegex } },
           ],
         },
-        { _id: { $nin: excludedIds } }
+        { _id: { $nin: excludedIds } },
       ],
     })
-    .select('username email fullName avatar') // Only select needed fields
-    .limit(20) // Limit results to prevent performance issues
-    .lean(); // Better performance
+      .select("username email fullName avatar") // Only select needed fields
+      .limit(20) // Limit results to prevent performance issues
+      .lean(); // Better performance
 
     // Always return an array (empty if no results)
     res.status(200).json(users);
-    
   } catch (err) {
-    console.error('Error in findUsers:', err);
+    console.error("Error in findUsers:", err);
     // Return empty array on error instead of throwing
     res.status(500).json({ message: "Internal server error" });
   }
@@ -347,18 +299,24 @@ export async function deleteGroup(req, res, next) {
 
 // ############-----send attachment
 
-export async function sendAttachment(req, res, next) {
-  const { chatId } = req.body;
+export async function sendMessage(req, res, next) {
+  const { chatId } = req.params;
+  if (!chatId) return next(new customError("chat id is missing", 404));
 
   const files = req.files || [];
+  const text = req.body.text || "";
 
-  // console.log(files);
+  console.log("text :: ", text);
 
-  if (files.length < 1)
-    return next(new customError("Please Upload Attachments", 400));
+  if (files.length < 1 && !text) {
+    return next(new customError("please provide something", 404));
+  }
 
-  if (files.length > 5)
-    return next(new customError("Files Can't be more than 5", 400));
+  if (files.length > 6) {
+    return next(new customError("Files can't be more than 5", 400));
+  }
+
+  // console.log(chatId);
 
   const [chat, me] = await Promise.all([
     Chat.findById(chatId),
@@ -366,36 +324,41 @@ export async function sendAttachment(req, res, next) {
   ]);
 
   if (!chat) return next(new customError("Chat not found", 404));
+  if (!me) return next(new customError("loggedin user data not found", 404));
 
-  // if (files.length < 1)
-  //   return next(new ErrorHandler("Please provide attachments", 400));
+  let message = [];
 
-  //   Upload files here
-  // const attachments = await uploadFilesToCloudinary(files);
+  try {
+    const attachments = await uploadFilesToCloudinary(files);
+    const messageForDB = {
+      text: text,
+      attachments: attachments,
+      sender: me._id,
+      chat: chatId,
+    };
+    
+    // console.log("attachments :: ", attachments);
+    console.log("messageForDB :: ", messageForDB);
 
-  const messageForDB = {
-    text: faker.lorem.sentence(),
-    attachments: faker.image.avatar(),
-    sender: me._id,
-    chat: chatId,
-  };
+    message = await Message.create(messageForDB);
+  } catch (error) {
+    console.log("reached here ::", error);
+  }
 
-  const messageForRealTime = {
-    ...messageForDB,
-    sender: {
-      _id: me._id,
-      name: me.name,
-    },
-  };
+  // const messageForRealTime = {
+  //   ...messageForDB,
+  //   sender: {
+  //     _id: me._id,
+  //     name: me.name,
+  //   },
+  // };
 
-  const message = await Message.create(messageForDB);
+  // emitEvent(req, NEW_MESSAGE, chat.members, {
+  //   message: messageForRealTime,
+  //   chatId,
+  // });
 
-  emitEvent(req, NEW_MESSAGE, chat.members, {
-    message: messageForRealTime,
-    chatId,
-  });
-
-  emitEvent(req, NEW_MESSAGE_ALERT, chat.members, { chatId });
+  // emitEvent(req, NEW_MESSAGE_ALERT, chat.members, { chatId });
 
   return res.status(200).json({
     success: true,
@@ -501,8 +464,8 @@ export async function getAllMessagesOfAchat(req, res, next) {
 
   // const skip = (page - 1) * resultPerPage;
 
-  const messages = await Message.find({ chat: chatId })
-// console.log("reached", messages)
+  const messages = await Message.find({ chat: chatId });
+  // console.log("reached", messages)
   return res.status(200).json({
     success: true,
     chat: messages,

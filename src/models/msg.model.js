@@ -15,14 +15,11 @@ const messageSchema = new mongoose.Schema(
     },
     attachments: [
       {
-        public_id: {
-          type: String,
-          required: true,
-        },
-        url: {
-          type: String,
-          required: true,
-        },
+        public_id: String,
+        url: String,
+        fileType: String,
+        fileSize : String,
+        filename :String
       },
     ],
     messageType: {
