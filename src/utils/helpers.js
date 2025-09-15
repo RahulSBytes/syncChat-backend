@@ -33,7 +33,6 @@ const getBase64 = (file) => {
   return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 };
 
-
 function formatFileSize(bytes) {
   let size, unit;
 
@@ -52,23 +51,33 @@ function formatFileSize(bytes) {
   return `${size} ${unit}`;
 }
 
-
 // Upload multiple files to Cloudinary manually
 export const uploadFilesToCloudinary = async (files = []) => {
   const uploadPromises = files.map((file) => {
-    const typeMap = {
-      image: "image",
-      video: "video",
-      audio: "audio",
-    };
-    const fileType = typeMap[file.mimetype.split("/")[0]] || "raw";
+    let resourceType = "raw"; // default fallback
+    let fileType = "raw";
+
+    if (file.mimetype.startsWith("image/")) {
+      resourceType = "image";
+      fileType = "image";
+    } else if (
+      file.mimetype.startsWith("video/") ||
+      file.mimetype.startsWith("audio/")
+    ) {
+      resourceType = "video"; // Cloudinary puts video + audio under "video"
+      fileType = file.mimetype.startsWith("audio/") ? "audio" : "video";
+    } else {
+      resourceType = "raw"; // pdf, excel, docs, zips...
+      fileType = "raw";
+    }
 
     return new Promise((resolve, reject) => {
       cloudinary.uploader.upload(
         getBase64(file),
         {
-          resource_type: "auto",
+          resource_type: resourceType,
           public_id: uuid(),
+          type: "upload",
         },
         (error, result) => {
           if (error) return reject(error);
@@ -92,8 +101,5 @@ export const uploadFilesToCloudinary = async (files = []) => {
     throw new Error("Error uploading files to cloudinary", err);
   }
 };
-
-
-
 
 export { cookieOptions, sendToken, emitEvent, getSockets };
