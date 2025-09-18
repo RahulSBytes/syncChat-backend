@@ -8,7 +8,7 @@ routes.use(isAuthenticated)
 routes.get("/getmyprofile", getMyProfile);
 routes.get("/searchUser", searchUser);
 routes.post("/sendfriendrequest", sendFriendRequest);
-routes.post("/acceptfriendrequest", respondFriendRequest);
+routes.post("/respondfriendrequest", respondFriendRequest);
 routes.post("/getallfriendrequest", getAllFriendRequest);
 routes.get("/notifications", notifications);
 

@@ -18,21 +18,29 @@ import { attachmentFiles } from "../middleware/multer.js";
 // ############----- create a chat
 
 export async function createGroupChat(req, res, next) {
-  const { name, members } = req.body || {};
+  const { name, members, description } = req.body || {};
+
   if (!name || !members)
     next(new customError("name and members are required", 400));
+  const allMembers = [...JSON.parse(members), req.user];
 
-  const allMembers = [...members, req.user];
+  // console.log("backend data ::", name, members, description, allMembers);
+
+  const cloudres = await uploadFilesToCloudinary([req.file]);
 
   const group = await Chat.create({
     name,
     members: allMembers,
     groupChat: true,
+    description,
+    avatar: { public_id: cloudres[0].public_id, url: cloudres[0].url },
     creator: req.user,
   });
 
-  emitEvent(req, ALERT, allMembers, "welcome to group");
-  emitEvent(req, REFETCH_CHATS, members, "chat list refreshed");
+  console.log("group ::", group);
+
+  // emitEvent(req, ALERT, allMembers, "welcome to group");
+  // emitEvent(req, REFETCH_CHATS, members, "chat list refreshed");
 
   if (!group) return next(new customError("error creating group", 400));
   return res.status(200).json({
@@ -177,8 +185,6 @@ export async function addMembers(req, res, next) {
     { $addToSet: { members: userId } }
   );
 
- 
-
   emitEvent(req, ALERT, chat.members, "the user added sucessfully");
   emitEvent(req, REFETCH_CHATS, chat.members);
 
@@ -271,7 +277,6 @@ export async function leaveGroup(req, res, next) {
 // ############-----delete group
 
 export async function deleteGroup(req, res, next) {
-
   const { chatId } = req.body;
   const userId = req.user;
 
@@ -306,7 +311,6 @@ export async function sendMessage(req, res, next) {
   const files = req.files || [];
   const text = req.body.text || "";
 
-
   if (files.length < 1 && !text) {
     return next(new customError("please provide something", 404));
   }
@@ -314,7 +318,6 @@ export async function sendMessage(req, res, next) {
   if (files.length > 6) {
     return next(new customError("Files can't be more than 5", 400));
   }
-
 
   const [chat, me] = await Promise.all([
     Chat.findById(chatId),
@@ -334,8 +337,6 @@ export async function sendMessage(req, res, next) {
       sender: me._id,
       chat: chatId,
     };
-    
-
 
     message = await Message.create(messageForDB);
   } catch (error) {

@@ -15,15 +15,15 @@ import {
 } from "../controllers/chat.controller.js";
 import isAuthenticated from "../middleware/isAuthenticated.js";
 import { chatValidation } from "../middleware/chatvalidation.js";
-import { attachmentFiles } from "../middleware/multer.js";
+import { attachmentFiles, singleAvatar } from "../middleware/multer.js";
 import { asyncWrapper } from "../middleware/error.js";
 const router = express.Router();
 
 router.use(isAuthenticated);
 
-router.post("/", chatValidation, createGroupChat);
+router.post("/", singleAvatar, createGroupChat);
 router.get("/", getMyChats);
-router.get("/findUser", asyncWrapper(findUsers) );
+router.get("/findUser", asyncWrapper(findUsers));
 router.patch("/removemember", removeMember);
 router.patch("/leavegroup", leaveGroup);
 router.delete("/deletegroup", deleteGroup);
@@ -32,6 +32,5 @@ router.patch("/renamegroup", renameGroup);
 router.get("/getchatdetail", getChatDetail);
 router.delete("/deletechat", deleteChat);
 router.get("/getmsgs/:id", getAllMessagesOfAchat);
-
 
 export default router;

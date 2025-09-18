@@ -17,9 +17,6 @@ export async function getMyProfile(req, res, next) {
   });
 }
 
-
-
-
 export async function searchUser(req, res, next) {
   const { name } = req.body || {};
 
@@ -60,8 +57,6 @@ export async function searchUser(req, res, next) {
     data: availableUsers,
   });
 }
-
-
 
 export async function getAllFriendRequest(req, res, next) {
   const chats = await ChatRequest.findById(req.user);
@@ -105,10 +100,10 @@ export async function sendFriendRequest(req, res, next) {
 }
 
 export async function respondFriendRequest(req, res, next) {
-  const { requestId, accept = true } = req.body || {};
+  const { requestId, accept } = req.body || {};
   if (!requestId)
     return next(new customError("must provide reciever's id", 400));
-
+  
   const request = await ChatRequest.findById(requestId);
   if (!request) return next(new customError("request not found", 400));
 
@@ -139,7 +134,6 @@ export async function respondFriendRequest(req, res, next) {
 }
 
 export async function notifications(req, res, next) {
-  // console.log(req.user)
   const data = await ChatRequest.find({ receiver: req.user }).populate(
     "sender",
     "fullName username avatar"

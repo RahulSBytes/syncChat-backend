@@ -11,6 +11,17 @@ const chatSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    description: String,
+    avatar: {
+      public_id: {
+        type: String,
+        default: null,
+      },
+      url: {
+        type: String,
+        default: null,
+      },
+    },
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
