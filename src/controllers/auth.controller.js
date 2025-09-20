@@ -65,5 +65,6 @@ export async function logoutUser(req, res) {
   console.log("reached backend")
   return res.clearCookie("synqchat-token", cookieOptions).status(200).json({
     message: "successfully logged out",
+    success : true
   });
 }
