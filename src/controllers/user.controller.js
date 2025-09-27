@@ -3,7 +3,7 @@ import { customError } from "../middleware/error.js";
 import Chat from "../models/chat.model.js";
 import ChatRequest from "../models/chatrequest.model.js";
 import User from "../models/user.model.js";
-import { emitEvent } from "../utils/helpers.js";
+import { emitEvent } from "../utils/socketHelpers.js";
 
 export function getSpecificUser(req, res) {
   res.send(`user ${req.params.id} data`);

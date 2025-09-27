@@ -8,12 +8,13 @@ import {
 import { customError } from "../middleware/error.js";
 import Chat from "../models/chat.model.js";
 import Message from "../models/msg.model.js";
-import { emitEvent, uploadFilesToCloudinary } from "../utils/helpers.js";
+import { uploadFilesToCloudinary } from "../utils/helpers.js";
 import User from "../models/user.model.js";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import ChatRequest from "../models/chatrequest.model.js";
 import { sendFriendRequest } from "./user.controller.js";
 import { attachmentFiles } from "../middleware/multer.js";
+import { emitEvent } from "../utils/socketHelpers.js";
 
 // ############----- create a chat
 
@@ -321,17 +322,17 @@ export async function sendMessage(req, res, next) {
 
   const [chat, me] = await Promise.all([
     Chat.findById(chatId),
-    User.findById(req.user, "name"),
+    User.findById(req.user, "username avatar fullName"),
   ]);
 
   if (!chat) return next(new customError("Chat not found", 404));
   if (!me) return next(new customError("loggedin user data not found", 404));
 
   let message = [];
-
+  let messageForDB = null;
   try {
     const attachments = await uploadFilesToCloudinary(files);
-    const messageForDB = {
+    messageForDB = {
       text: text,
       attachments: attachments,
       sender: me._id,
@@ -343,18 +344,20 @@ export async function sendMessage(req, res, next) {
     console.log("reached here ::", error);
   }
 
-  // const messageForRealTime = {
-  //   ...messageForDB,
-  //   sender: {
-  //     _id: me._id,
-  //     name: me.name,
-  //   },
-  // };
+  const messageForRealTime = {
+    ...messageForDB,
+    createdAt: message.createdAt,
+    updatedAt: message.updatedAt,
+    _id: message._id,
+    sender: {
+      _id: me._id,
+      name: me.username,
+      avatar: me.avatar,
+      fullName: me.fullName,
+    },
+  };
 
-  // emitEvent(req, NEW_MESSAGE, chat.members, {
-  //   message: messageForRealTime,
-  //   chatId,
-  // });
+  emitEvent(req, NEW_MESSAGE, chat.members,  messageForRealTime );
 
   // emitEvent(req, NEW_MESSAGE_ALERT, chat.members, { chatId });
 
@@ -462,7 +465,10 @@ export async function getAllMessagesOfAchat(req, res, next) {
 
   // const skip = (page - 1) * resultPerPage;
 
-  const messages = await Message.find({ chat: chatId });
+  const messages = await Message.find({ chat: chatId }).populate(
+    "sender",
+    "username fullName avatar"
+  );
   return res.status(200).json({
     success: true,
     chat: messages,

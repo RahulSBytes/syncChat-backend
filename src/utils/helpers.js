@@ -20,9 +20,6 @@ function sendToken(res, savedUserData) {
   }); // sending the response as well as setting the cookie
 }
 
-const emitEvent = (req, event, users, data = "") => {
-  console.log("event emitted", event);
-};
 
 const getSockets = (users = []) => {
   const sockets = users.map((user) => userSocketIDs.get(user.toString()));
@@ -105,4 +102,4 @@ export const uploadFilesToCloudinary = async (files = []) => {
   }
 };
 
-export { cookieOptions, sendToken, emitEvent, getSockets };
+export { cookieOptions, sendToken};

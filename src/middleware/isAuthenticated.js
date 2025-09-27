@@ -1,5 +1,5 @@
 import User from "../models/user.model.js";
-import { customError } from "./error.js";
+import { customError } from "../middleware/error.js";
 import Jwt from "jsonwebtoken";
 
 export default function isAuthenticated(req, res, next) {
