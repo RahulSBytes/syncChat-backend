@@ -32,5 +32,6 @@ router.patch("/renamegroup", renameGroup);
 router.get("/getchatdetail", getChatDetail);
 router.delete("/deletechat", deleteChat);
 router.get("/getmsgs/:id", getAllMessagesOfAchat);
+router.patch("/addmember", addMembers);
 
 export default router;

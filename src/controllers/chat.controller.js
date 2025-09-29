@@ -1,6 +1,7 @@
 import { faker } from "@faker-js/faker";
 import {
   ALERT,
+  GROUP_MEMBER_UPDATED,
   NEW_MESSAGE,
   NEW_MESSAGE_ALERT,
   REFETCH_CHATS,
@@ -157,73 +158,92 @@ export async function findUsers(req, res, next) {
 // ############----- add member
 
 export async function addMembers(req, res, next) {
-  const { chatId, userId } = req.body;
+  const { chatId, username } = req.body;
 
-  if (!chatId || !userId) {
-    return next(new customError("chatId and userId are required", 400));
+  if (!chatId || !username) {
+    return next(new customError("chatId and userId both are required", 400));
   }
 
-  const chat = await Chat.findById(chatId, "members creator"); // new learning
+  const [chat, user] = await Promise.all([
+    Chat.findById(chatId, "members creator"),
+    User.find({ username }),
+  ]);
 
   if (!chat) {
     return next(new customError("Chat not found", 404));
   }
 
-  if (chat.members.length === 2) {
-    return next(new customError("this is not a group chat", 404));
+  if (!user) {
+    return next(new customError("User not found", 404));
   }
 
-  if (chat.creator != req.user) {
+  if (chat.members.length === 2) {
+    return next(new customError("This is not a group chat", 404));
+  }
+
+  if (chat.creator.toString() != req.user) {
     return next(new customError("you are not allowed to add members", 404));
   }
 
-  if (chat.members.includes(userId)) {
+  if (chat.members.includes(user[0]._id)) {
     return next(new customError("User is already a member of this group", 400));
   }
 
-  const addeduserdata = await Chat.updateOne(
-    { _id: chatId },
-    { $addToSet: { members: userId } }
-  );
+  const updatedChat = await Chat.findByIdAndUpdate(
+    chatId,
+    { $addToSet: { members: user[0]._id } },
+    { new: true }
+  )
+    .populate("members")
+    .populate("creator", "fullName");
 
-  emitEvent(req, ALERT, chat.members, "the user added sucessfully");
-  emitEvent(req, REFETCH_CHATS, chat.members);
+  // console.log("reached backend ::",updatedChat)
+  emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, updatedChat);
 
   return res.status(201).json({
     success: true,
-    message: "member added",
+    message: "member added successfully",
   });
 }
 
 // ############----- remove member
 
 export async function removeMember(req, res, next) {
-  const { chatId, userId } = req.body;
+  const { chatId, memberId } = req.body;
 
-  if (!chatId || !userId) {
+  if (!chatId || !memberId) {
     return next(new customError("chatId and userId are required", 400));
   }
 
-  const chat = await Chat.findById(chatId, "members creator"); // new learning
+  const chat = await Chat.findById(chatId)
+    .populate("members")
+    .populate("creator", "fullName"); // new learning
 
   if (!chat) {
     return next(new customError("Chat not found", 404));
   }
 
-  if (chat.creator != req.user) {
+  if (chat.creator._id != req.user) {
     return next(new customError("you are not allowed to remove members", 404));
   }
 
-  if (!chat.members.includes(userId)) {
+  if (!chat.members.some((member) => member._id == memberId)) {
     return next(new customError("User is not a member of this group", 400));
   }
 
-  await Chat.updateOne({ _id: chatId }, { $pull: { members: userId } });
+  if (chat.members.length <= 2) {
+    return next(new customError("A group must have atleast 2 members", 400));
+  }
 
-  const leftUsers = chat.members.filter((el) => el != userId);
+  const updatedChat = await Chat.findByIdAndUpdate(
+    chatId,
+    { $pull: { members: memberId } },
+    { new: true } // updated doc
+  )
+    .populate("members")
+    .populate("creator", "fullName");
 
-  emitEvent(req, ALERT, leftUsers, "member removed");
-  emitEvent(req, REFETCH_CHATS, chat.members);
+  emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, updatedChat);
 
   return res.status(200).json({
     success: true,
@@ -357,7 +377,7 @@ export async function sendMessage(req, res, next) {
     },
   };
 
-  emitEvent(req, NEW_MESSAGE, chat.members,  messageForRealTime );
+  emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
 
   // emitEvent(req, NEW_MESSAGE_ALERT, chat.members, { chatId });
 
