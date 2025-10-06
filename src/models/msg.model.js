@@ -7,24 +7,49 @@ const messageSchema = new mongoose.Schema(
       ref: "Chat",
       required: true,
     },
-    text: String,
     sender: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
+
     attachments: [
       {
         public_id: String,
         url: String,
         fileType: String,
-        fileSize : String,
-        filename :String
+        fileSize: String,
+        filename: String,
+
+        deletedForEveryone: {
+          type: Boolean,
+          default: false,
+        },
+        deletedFor: [
+          {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: [],
+          },
+        ],
+        deletedAt: Date,
+      },
+    ],
+    text: String,
+    textDeletedForEveryone: {
+      type: Boolean,
+      default: false,
+    },
+    textDeletedFor: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: [],
       },
     ],
     messageType: {
       type: String,
-      enum: ["text", "image", "video", "audio", "location", "file"],
+      enum: ["text", "image", "video", "audio", "file"],
       default: "text",
     },
   },

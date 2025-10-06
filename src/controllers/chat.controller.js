@@ -1,7 +1,9 @@
 import { faker } from "@faker-js/faker";
 import {
   ALERT,
+  CHAT_CLEARED,
   GROUP_MEMBER_UPDATED,
+  MESSAGE_DELETED,
   NEW_MESSAGE,
   NEW_MESSAGE_ALERT,
   REFETCH_CHATS,
@@ -9,13 +11,184 @@ import {
 import { customError } from "../middleware/error.js";
 import Chat from "../models/chat.model.js";
 import Message from "../models/msg.model.js";
-import { uploadFilesToCloudinary } from "../utils/helpers.js";
+import { modifyMessage, uploadFilesToCloudinary } from "../utils/helpers.js";
 import User from "../models/user.model.js";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
+import { v2 as cloudinary } from "cloudinary";
 import ChatRequest from "../models/chatrequest.model.js";
 import { sendFriendRequest } from "./user.controller.js";
 import { attachmentFiles } from "../middleware/multer.js";
 import { emitEvent } from "../utils/socketHelpers.js";
+import mongoose from "mongoose";
+
+export async function deleteForMe(req, res, next) {
+  try {
+    const { messageId } = req.params;
+    const { messageInfo, members } = req.body;
+
+    if (!messageId || !messageInfo) {
+      return next(
+        new customError("message id and message info both are required", 404)
+      );
+    }
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return next(new customError("Message not found", 404));
+    }
+
+    if (message.sender.toString() !== req.user) {
+      return next(
+        new customError("You are not allowed to delete this message", 403)
+      );
+    }
+
+    if (messageInfo.type === "text") {
+      message.textDeletedFor = [
+        ...new Set([...message.textDeletedFor, req.user]),
+      ];
+    } else {
+      const attachment = message.attachments.id(messageInfo.attachment._id);
+      if (!attachment)
+        return next(new customError("Attachment not found", 404));
+      attachment.deletedFor = [
+        ...new Set([...attachment.deletedFor, req.user]),
+      ];
+    }
+
+    await message.save();
+
+    // repopulate before returning / emitting
+    const populatedMessage = await Message.findById(messageId)
+      .populate("sender", "_id fullName avatar username")
+      .populate("chat");
+
+    emitEvent(req, MESSAGE_DELETED, members, populatedMessage);
+
+    return res.status(201).json({
+      success: true,
+      updatedMessage: populatedMessage,
+    });
+  } catch (error) {
+    console.error("Delete-for-me error:", error);
+    next(error);
+  }
+}
+
+export async function deleteForEveryone(req, res, next) {
+  try {
+    const { messageId } = req.params;
+    const { messageInfo, members } = req.body;
+
+    if (!messageId || !messageInfo) {
+      return customError("message id and message info both are required", 404);
+    }
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return customError("Message not found", 404);
+    }
+
+    if (message.sender.toString() != req.user) {
+      return next(
+        new customError("You are not allowed to delete this message", 403)
+      );
+    }
+
+    if (messageInfo.type === "text") {
+      message.textDeletedForEveryone = true;
+      message.text = "";
+    } else {
+      const attachment = message.attachments.id(messageInfo.attachment._id);
+      if (!attachment)
+        return next(new customError("Attachment not found", 404));
+      const { result } = await cloudinary.uploader.destroy(
+        attachment.public_id,
+        { invalidate: true }
+      );
+
+      if (result == "ok") console.log("error deleting file from cloudinary");
+      attachment.deletedForEveryone = true;
+      attachment.url = null;
+    }
+
+    await message.save();
+
+    const populatedMessage = await Message.findById(messageId)
+      .populate("sender", "_id fullName avatar username")
+      .populate("chat");
+
+    emitEvent(req, MESSAGE_DELETED, members, populatedMessage);
+
+    return res.status(201).json({
+      success: true,
+      updatedMessage: populatedMessage,
+    });
+  } catch (error) {
+    console.error("Delete-for-everyone error:", error);
+    next(error);
+  }
+}
+
+export async function getAllMessagesOfAchat(req, res, next) {
+  // const { chatId, page = 1 } = req.body;
+  const { id: chatId } = req.params;
+
+  if (!chatId) return next(new customError("chatId id required", 400));
+
+  // const resultPerPage = 20;
+
+  // const skip = (page - 1) * resultPerPage;
+
+  const messages = await Message.find({ chat: chatId })
+    .populate("sender", "username fullName avatar")
+    .lean();
+
+  const modifiedMessage = modifyMessage(messages, req.user);
+
+  return res.status(200).json({
+    success: true,
+    chat: modifiedMessage,
+  });
+}
+
+export async function clearChat(req, res, next) {
+  try {
+    const { chatId } = req.params;
+    if (!chatId) return next(new customError("chat id is required", 404));
+
+    const chatDoc = await Chat.findById(chatId).select("members");
+    if (!chatDoc) return next(new customError("chat not found", 404));
+
+    const isMember = chatDoc.members.some((m) => m.toString() === req.user);
+
+    if (!isMember) {
+      return next(new customError("you are not a member of this chat", 403));
+    }
+
+    await Message.updateMany(
+      { chat: chatId },
+      {
+        $addToSet: {
+          textDeletedFor: req.user,
+          "attachments.$[].deletedFor": req.user,
+        },
+      }
+    );
+
+    emitEvent(req, CHAT_CLEARED, [{ _id: req.user }], { chatId });
+
+    return res.status(200).json({
+      success: true,
+      message: "Chat cleared for you",
+    });
+  } catch (err) {
+    console.log("error clearing the chat ", err);
+    next(err);
+  }
+}
 
 // ############----- create a chat
 
@@ -38,8 +211,6 @@ export async function createGroupChat(req, res, next) {
     avatar: { public_id: cloudres[0].public_id, url: cloudres[0].url },
     creator: req.user,
   });
-
-  console.log("group ::", group);
 
   // emitEvent(req, ALERT, allMembers, "welcome to group");
   // emitEvent(req, REFETCH_CHATS, members, "chat list refreshed");
@@ -359,16 +530,13 @@ export async function sendMessage(req, res, next) {
       chat: chatId,
     };
 
-    message = await Message.create(messageForDB);
+    message = (await Message.create(messageForDB)).toObject();
   } catch (error) {
     console.log("reached here ::", error);
   }
 
   const messageForRealTime = {
-    ...messageForDB,
-    createdAt: message.createdAt,
-    updatedAt: message.updatedAt,
-    _id: message._id,
+    ...message,
     sender: {
       _id: me._id,
       name: me.username,
@@ -472,25 +640,5 @@ export async function deleteChat(req, res, next) {
   return res.status(200).json({
     success: true,
     message: "chat deleted successfully",
-  });
-}
-
-export async function getAllMessagesOfAchat(req, res, next) {
-  // const { chatId, page = 1 } = req.body;
-  const chatId = req.params.id;
-
-  if (!chatId) return next(new customError("chatId id required", 400));
-
-  // const resultPerPage = 20;
-
-  // const skip = (page - 1) * resultPerPage;
-
-  const messages = await Message.find({ chat: chatId }).populate(
-    "sender",
-    "username fullName avatar"
-  );
-  return res.status(200).json({
-    success: true,
-    chat: messages,
   });
 }

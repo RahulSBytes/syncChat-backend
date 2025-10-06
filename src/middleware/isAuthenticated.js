@@ -19,7 +19,7 @@ export const socketAuthenticator = async (socket, next) => {
     }
 
     const decoded = Jwt.verify(token, process.env.JWT_SECRET);
-    
+
     const user = await User.findById(decoded._id);
 
     if (!user) {

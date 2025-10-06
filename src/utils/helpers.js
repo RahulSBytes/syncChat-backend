@@ -20,7 +20,6 @@ function sendToken(res, savedUserData) {
   }); // sending the response as well as setting the cookie
 }
 
-
 const getSockets = (users = []) => {
   const sockets = users.map((user) => userSocketIDs.get(user.toString()));
   return sockets;
@@ -102,4 +101,46 @@ export const uploadFilesToCloudinary = async (files = []) => {
   }
 };
 
-export { cookieOptions, sendToken};
+function modifyMessage(messages, userId) {
+  return messages.map((msg) => {
+    const isTextDeletedForMe = msg.textDeletedFor?.some(
+      (u) => String(u) === String(userId)
+    );
+
+    // Filter out only the attachments that current user shouldn't see.
+    // Keep ones deletedForEveryone so UI can show placeholder.
+    const filteredAttachments = (msg.attachments || []).filter((att) => {
+      const deletedForUser = att.deletedFor?.some(
+        (u) => String(u) === String(userId)
+      );
+      // Hide if specifically deleted for this user
+      return !deletedForUser;
+    });
+
+    // Now build what the client expects
+    return {
+      _id: msg._id,
+      chat: msg.chat,
+      sender: msg.sender,
+      messageType: msg.messageType,
+      createdAt: msg.createdAt,
+      updatedAt: msg.updatedAt,
+      isMine: String(msg.sender?._id) === String(userId),
+
+      // pass attachments through as‑is (with deletedForEveryone flag)
+      attachments: filteredAttachments,
+
+      // keep flags intact !
+      textDeletedForEveryone: msg.textDeletedForEveryone,
+      textDeletedFor: msg.textDeletedFor,
+
+      // decide what to show for text
+      text:
+        msg.textDeletedForEveryone || isTextDeletedForMe
+          ? '' // backend blanked text content
+          : msg.text,
+    };
+  });
+}
+
+export { cookieOptions, sendToken, modifyMessage };

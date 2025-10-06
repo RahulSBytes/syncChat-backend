@@ -12,9 +12,11 @@ import {
   renameGroup,
   sendMessage,
   findUsers,
+  deleteForMe,
+  deleteForEveryone,
+  clearChat,
 } from "../controllers/chat.controller.js";
 import isAuthenticated from "../middleware/isAuthenticated.js";
-import { chatValidation } from "../middleware/chatvalidation.js";
 import { attachmentFiles, singleAvatar } from "../middleware/multer.js";
 import { asyncWrapper } from "../middleware/error.js";
 const router = express.Router();
@@ -33,5 +35,8 @@ router.get("/getchatdetail", getChatDetail);
 router.delete("/deletechat", deleteChat);
 router.get("/getmsgs/:id", getAllMessagesOfAchat);
 router.patch("/addmember", addMembers);
+router.delete("/:messageId/delete-for-me", deleteForMe);
+router.delete("/:messageId/delete-for-everyone", deleteForEveryone);
+router.delete("/:chatId/clear-chat", clearChat);
 
 export default router;
