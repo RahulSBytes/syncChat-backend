@@ -29,19 +29,11 @@ const chatSchema = new mongoose.Schema(
       },
     ],
     lastMessage: {
-      text: String,
-      senderId: {
+      message:String,
+      messageId : {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        ref: "Message",
       },
-      senderName: String,
-      timestamp: Date,
-      messageType: {
-        type: String,
-        enum: ["text", "image", "file", "audio"],
-        default: "text",
-      },
-      isDeleted: { type: Boolean, default: false },
     },
 
     lastMessageTime: Date,

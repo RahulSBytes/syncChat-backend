@@ -143,4 +143,27 @@ function modifyMessage(messages, userId) {
   });
 }
 
-export { cookieOptions, sendToken, modifyMessage };
+
+const areIdsEqual = (id1, id2) => id1?.toString() === id2?.toString();
+
+function getLastMessagePreview(message, userId) {
+  const { text, textDeletedForEveryone, textDeletedFor, attachments } = message;
+
+  // Check if text is visible to user
+  const textVisible = text && !textDeletedForEveryone && !textDeletedFor.includes(userId);
+  
+  // Check if any attachment is visible to user
+  const anyAttachmentVisible = attachments.some(
+    (a) => !a.deletedForEveryone && !a.deletedFor.includes(userId)
+  );
+
+  if (textVisible) return text;
+  if (anyAttachmentVisible) return "Attachment";
+  if (textDeletedForEveryone || attachments.some((a) => a.deletedForEveryone)) {
+    return "This message was deleted";
+  }
+  return false;
+}
+
+
+export { cookieOptions, sendToken, modifyMessage,areIdsEqual,getLastMessagePreview };
