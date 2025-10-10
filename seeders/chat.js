@@ -2,6 +2,7 @@ import { faker, simpleFaker } from "@faker-js/faker";
 import Chat from "../src/models/chat.model.js";
 import Message from "../src/models/msg.model.js";
 import User from "../src/models/user.model.js";
+import UserChat from "../src/models/UserChat.js";
 
 const createSingleChats = async (numChats) => {
   try {
@@ -17,20 +18,39 @@ const createSingleChats = async (numChats) => {
         chatsPromise.push(
           Chat.create({
             members: [users[x], users[y]],
-            lastMessage: {
-              text: faker.lorem.sentence(),
-              senderId: users[x],
-              senderName: faker.person.fullName(),
-              timestamp: faker.date.past(),
-            },
           })
         );
       }
     }
 
-    await Promise.all(chatsPromise);
+    // Wait for all chats to be created
+    const createdChats = await Promise.all(chatsPromise);
 
-    console.log("single Chats created successfully");
+    // Create UserChat entries for both members of each chat
+    const userChatPromises = [];
+
+    for (const chat of createdChats) {
+      // Create UserChat for first member
+      userChatPromises.push(
+        UserChat.create({
+          userId: chat.members[0],
+          chatId: chat._id
+        })
+      );
+
+      // Create UserChat for second member
+      userChatPromises.push(
+        UserChat.create({
+          userId: chat.members[1],
+          chatId: chat._id,
+        })
+      );
+    }
+
+    await Promise.all(userChatPromises);
+
+    console.log("Single chats created successfully");
+    console.log(`Created ${createdChats.length} chats with ${userChatPromises.length} UserChat entries`);
     process.exit();
   } catch (error) {
     console.error(error);
@@ -48,7 +68,7 @@ const createGroupChats = async (numChats) => {
       const numMembers = simpleFaker.number.int({ min: 3, max: 8 });
       const members = [];
 
-      for (let i = 0; i < numMembers; i++) {
+      for (let j = 0; j < numMembers; j++) {
         const randomIndex = Math.floor(Math.random() * users.length);
         const randomUser = users[randomIndex];
 
@@ -62,21 +82,34 @@ const createGroupChats = async (numChats) => {
         groupChat: true,
         name: faker.lorem.words(1),
         members,
+        description: faker.lorem.lines(3),
         creator: members[0],
-        lastMessage: {
-              text: faker.lorem.sentence(),
-              senderId: members[0],
-              senderName: faker.person.fullName(),
-              timestamp: faker.date.past(),
-            },
       });
 
       chatsPromise.push(chat);
     }
 
-    await Promise.all(chatsPromise);
+    // Wait for all chats to be created
+    const createdChats = await Promise.all(chatsPromise);
 
-    console.log("group Chats created successfully");
+    // Create UserChat entries for all members of all chats
+    const userChatPromises = [];
+
+    for (const chat of createdChats) {
+      for (const memberId of chat.members) {
+        userChatPromises.push(
+          UserChat.create({
+            userId: memberId,
+            chatId: chat._id,
+          })
+        );
+      }
+    }
+
+    await Promise.all(userChatPromises);
+
+    console.log("Group chats created successfully");
+    console.log(`Created ${createdChats.length} chats with UserChat entries`);
     process.exit();
   } catch (error) {
     console.error(error);

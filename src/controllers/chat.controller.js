@@ -4,7 +4,6 @@ import {
   GROUP_MEMBER_UPDATED,
   MESSAGE_DELETED,
   NEW_MESSAGE,
-  NEW_MESSAGE_ALERT,
   REFETCH_CHATS,
   UPDATE_LAST_MESSAGE,
 } from "../../constants/events.js";
@@ -18,13 +17,11 @@ import {
   uploadFilesToCloudinary,
 } from "../utils/helpers.js";
 import User from "../models/user.model.js";
+import UserChat from "../models/UserChat.js";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import { v2 as cloudinary } from "cloudinary";
 import ChatRequest from "../models/chatrequest.model.js";
-import { sendFriendRequest } from "./user.controller.js";
-import { attachmentFiles } from "../middleware/multer.js";
 import { emitEvent } from "../utils/socketHelpers.js";
-import mongoose from "mongoose";
 
 export async function deleteForMe(req, res, next) {
   try {
@@ -37,11 +34,12 @@ export async function deleteForMe(req, res, next) {
       );
     }
 
-    const [chat, message] = await Promise.all([
-      Chat.findById(chatId).select("members lastMessage"),
+    const [chat, message, userChat] = await Promise.all([
+      Chat.findById(chatId).select("members"),
       Message.findById(messageId)
         .populate("sender", "avatar fullName username")
         .populate("chat"),
+      UserChat.findOne({ userId: req.user, chatId: chatId }), // Get user's chat
     ]);
 
     if (!message) {
@@ -62,17 +60,13 @@ export async function deleteForMe(req, res, next) {
     }
     await message.save();
 
-
-if (areIdsEqual(message._id, chat.lastMessage.messageId)) {
-      let text;
+    if (areIdsEqual(message._id, userChat.lastMessage.messageId)) {
+      let text = getLastMessagePreview(message, req.user);
       let lastMessageObj;
-
-      text = getLastMessagePreview(message, req.user);
 
       if (text) {
         lastMessageObj = { messageId: message._id, message: text };
       } else {
-
         const prev = await Message.findOne({
           chat: chatId,
           $or: [
@@ -85,23 +79,25 @@ if (areIdsEqual(message._id, chat.lastMessage.messageId)) {
           .sort({ createdAt: -1, _id: -1 })
           .lean();
 
-        text = getLastMessagePreview(prev, req.user);
-        if (text) {
+        if (prev) {
+          text = getLastMessagePreview(modifyMessage([prev],req.user)[0], req.user);
           lastMessageObj = { messageId: prev._id, message: text };
         } else {
-          return console.log("something went wrong setting last message");
+          lastMessageObj = { messageId: null, message: null };
         }
       }
 
-      chat.lastMessage = lastMessageObj;
-      chat.save();
+      await UserChat.findOneAndUpdate(
+        { userId: req.user, chatId: chatId },
+        { lastMessage: lastMessageObj }
+      );
 
-      emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
+      emitEvent(req, UPDATE_LAST_MESSAGE, [{ _id: req.user }], {
         chatId,
-        lastMessageObj: chat.lastMessage,
+        lastMessageObj,
       });
     }
-  
+
     emitEvent(
       req,
       MESSAGE_DELETED,
@@ -111,15 +107,12 @@ if (areIdsEqual(message._id, chat.lastMessage.messageId)) {
 
     return res.status(201).json({
       success: true,
-      updatedMessage: message,
     });
   } catch (error) {
     console.error("Delete-for-me error:", error);
-    next(error);
+    return next(new customError("error deleting message for me",400 ))
   }
 }
-
-
 
 export async function deleteForEveryone(req, res, next) {
   try {
@@ -127,7 +120,7 @@ export async function deleteForEveryone(req, res, next) {
     const { messageInfo, chatId } = req.body;
 
     if (!messageId || !messageInfo) {
-      return customError("message id and message info both are required", 404);
+      return next(new customError("message id and message info both are required", 404));
     }
 
     const [chat, message] = await Promise.all([
@@ -138,10 +131,10 @@ export async function deleteForEveryone(req, res, next) {
     ]);
 
     if (!message) {
-      return customError("Message not found", 404);
+      return next(new customError("Message not found", 404));
     }
     if (!chat) {
-      return customError("chat not found", 404);
+      return next(new customError("chat not found", 404));
     }
 
     if (areIdsEqual(message.sender, req.user)) {
@@ -172,18 +165,49 @@ export async function deleteForEveryone(req, res, next) {
 
     await message.save();
 
-    if (areIdsEqual(message._id, chat.lastMessage.messageId)) {
-      let text;
-      text = getLastMessagePreview(message, req.user);
-      if (!text) return console.log("some error occured deleting for everyone")
+    const userChats = await UserChat.find({
+      chatId: chatId,
+      "lastMessage.messageId": message._id,
+    });
 
-      chat.lastMessage = { messageId: message._id, message: text };
-      chat.save();
-      emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
-        chatId,
-        lastMessageObj: chat.lastMessage,
+    const updatePromises = userChats.map(async (uc) => {
+      // Get preview after deletion (will show "This message was deleted")
+      const text = getLastMessagePreview(message, uc.userId);
+
+      if (!text) {
+        console.error("Error getting preview for delete-for-everyone");
+        return;
+      }
+
+      return UserChat.findByIdAndUpdate(uc._id, {
+        "lastMessage.message": text,
+        // Keep same messageId and time
       });
-    }
+    });
+
+    await Promise.all(updatePromises);
+
+    // Emit to ALL members
+    emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
+      chatId,
+      lastMessageObj: {
+        messageId: message._id,
+        message: "This message was deleted",
+      },
+    });
+
+    // if (areIdsEqual(message._id, chat.lastMessage.messageId)) {
+    //   let text;
+    //   text = getLastMessagePreview(message, req.user);
+    //   if (!text) return console.log("some error occured deleting for everyone");
+
+    //   chat.lastMessage = { messageId: message._id, message: text };
+    //   chat.save();
+    //   emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
+    //     chatId,
+    //     lastMessageObj: chat.lastMessage,
+    //   });
+    // }
 
     emitEvent(
       req,
@@ -263,51 +287,90 @@ export async function clearChat(req, res, next) {
 // ############----- create a chat
 
 export async function createGroupChat(req, res, next) {
-  const { name, members, description } = req.body || {};
+  try {
+    const { name, members, description } = req.body || {};
 
-  if (!name || !members)
-    next(new customError("name and members are required", 400));
-  const allMembers = [...JSON.parse(members), req.user];
+    if (!name || !members)
+      next(new customError("name and members are required", 400));
+    const allMembers = [...JSON.parse(members), req.user];
 
-  // console.log("backend data ::", name, members, description, allMembers);
+    const { public_id, url } = req.file
+      ? (await uploadFilesToCloudinary([req.file]))[0]
+      : {};
 
-  const cloudres = await uploadFilesToCloudinary([req.file]);
+    const group = await Chat.create({
+      name,
+      members: allMembers,
+      groupChat: true,
+      description,
+      avatar: { public_id, url },
+      creator: req.user,
+    });
 
-  const group = await Chat.create({
-    name,
-    members: allMembers,
-    groupChat: true,
-    description,
-    avatar: { public_id: cloudres[0].public_id, url: cloudres[0].url },
-    creator: req.user,
-  });
+    if (!group)
+      return next(
+        new customError("error creating group :: group not created", 400)
+      );
 
-  // emitEvent(req, ALERT, allMembers, "welcome to group");
-  // emitEvent(req, REFETCH_CHATS, members, "chat list refreshed");
+    const userChatPromises = group.members.map((memberId) =>
+      UserChat.create({
+        userId: memberId,
+        chatId: group._id,
+      })
+    );
 
-  if (!group) return next(new customError("error creating group", 400));
-  return res.status(200).json({
-    success: true,
-    message: "group successfully created",
-    groupData: group,
-  });
+    const check = await Promise.all(userChatPromises);
+
+    // emitEvent(req, ALERT, allMembers, "welcome to group");
+    // emitEvent(req, REFETCH_CHATS, members, "chat list refreshed");
+    return res.status(200).json({
+      success: true,
+      message: "group successfully created",
+      groupData: group,
+    });
+  } catch (error) {
+    console.log("error creating group ::", error);
+  }
 }
 
 // ############----- Get all chats of a user
 
 export async function getMyChats(req, res, next) {
-  const chats = await Chat.find({
-    members: { $in: [req.user] },
-  })
-    .populate("members")
-    .populate("creator", "fullName");
+  console.log("hey reached the backend");
+  try {
+    // Get user's chat relationships with their personalized last messages
+    const userChats = await UserChat.find({ userId: req.user })
+      .populate({
+        path: "chatId",
+        populate: [
+          {
+            path: "members",
+            select: "fullName avatar username email isOnline",
+          },
+          { path: "creator", select: "fullName avatar username" },
+        ],
+      })
+      .sort({ lastMessageTime: -1 })
+      .lean();
 
-  if (!chats) return next(new customError("error fetching chats", 400));
+    if (!userChats) {
+      return next(new customError("Error fetching chats", 400));
+    }
 
-  return res.status(201).json({
-    success: true,
-    chats: chats,
-  });
+    // Transform to include user-specific last message
+    const chats = userChats.map((uc) => ({
+      ...uc.chatId,
+      lastMessage: uc.lastMessage,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      chats: chats,
+    });
+  } catch (error) {
+    console.error("Get chats error:", error);
+    next(error);
+  }
 }
 
 // ############----- add member
@@ -567,34 +630,34 @@ export async function deleteGroup(req, res, next) {
 // ############-----send attachment
 
 export async function sendMessage(req, res, next) {
-  const { chatId } = req.params;
-  if (!chatId) return next(new customError("chat id is missing", 404));
-
-  const files = req.files || [];
-  const text = req.body.text || "";
-
-  if (files.length < 1 && !text) {
-    return next(new customError("please provide something", 404));
-  }
-
-  if (files.length > 6) {
-    return next(new customError("Files can't be more than 6", 400));
-  }
-
-  const [chat, me] = await Promise.all([
-    Chat.findById(chatId),
-    User.findById(req.user, "username avatar fullName"),
-  ]);
-
-  if (!chat) return next(new customError("Chat not found", 404));
-  if (!me) return next(new customError("loggedin user data not found", 404));
-
-  let message = [];
-  let messageForDB = null;
   try {
+    const { chatId } = req.params;
+    if (!chatId) return next(new customError("Chat id is missing", 404));
+
+    const files = req.files || [];
+    const text = req.body.text || "";
+
+    if (files.length < 1 && !text) {
+      return next(new customError("Please provide something", 404));
+    }
+
+    if (files.length > 6) {
+      return next(new customError("Files can't be more than 6", 400));
+    }
+
+    const [chat, me] = await Promise.all([
+      Chat.findById(chatId),
+      User.findById(req.user, "username avatar fullName"),
+    ]);
+
+    if (!chat) return next(new customError("Chat not found", 404));
+    if (!me) return next(new customError("Logged in user data not found", 404));
+
+    let message = null;
+
     const attachments = await uploadFilesToCloudinary(files);
 
-    messageForDB = {
+    const messageForDB = {
       text: text,
       attachments: attachments,
       sender: me._id,
@@ -603,37 +666,55 @@ export async function sendMessage(req, res, next) {
 
     message = (await Message.create(messageForDB)).toObject();
 
-    chat.lastMessage = {
-      messageId: message._id,
-      message: getLastMessagePreview(message),
+    const lastMessagePreview = getLastMessagePreview(message);
+
+    // Update lastMessage for ALL chat members in UserChat collection
+    const updatePromises = chat.members.map((memberId) =>
+      UserChat.findOneAndUpdate(
+        { userId: memberId, chatId: chatId },
+        {
+          lastMessage: {
+            message: lastMessagePreview,
+            messageId: message._id,
+          },
+          lastMessageTime: message.createdAt,
+        },
+        { upsert: true, new: true } // Create if doesn't exist
+      )
+    );
+
+    await Promise.all(updatePromises);
+
+    const messageForRealTime = {
+      ...message,
+      sender: {
+        _id: me._id,
+        name: me.username,
+        avatar: me.avatar,
+        fullName: me.fullName,
+      },
     };
-    chat.save();
+
+    // Emit to all members - each will see the update in their chat list
     emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
       chatId,
-      lastMessageObj: chat.lastMessage,
+      lastMessageObj: {
+        message: lastMessagePreview,
+        messageId: message._id,
+      },
+      lastMessageTime: message.createdAt,
+    });
+
+    emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
+
+    return res.status(200).json({
+      success: true,
+      message,
     });
   } catch (error) {
-    console.log("reached here ::", error);
+    console.error("Send message error:", error);
+    next(error);
   }
-
-  const messageForRealTime = {
-    ...message,
-    sender: {
-      _id: me._id,
-      name: me.username,
-      avatar: me.avatar,
-      fullName: me.fullName,
-    },
-  };
-
-  emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
-
-  // emitEvent(req, NEW_MESSAGE_ALERT, chat.members, { chatId });
-
-  return res.status(200).json({
-    success: true,
-    message,
-  });
 }
 
 // ############-----rename group

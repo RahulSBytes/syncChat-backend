@@ -157,11 +157,19 @@ function getLastMessagePreview(message, userId) {
     (a) => !a.deletedForEveryone && !a.deletedFor.includes(userId)
   );
 
+  // ✅ Priority 1: Show text if visible
   if (textVisible) return text;
+
+  // ✅ Priority 2: Show "Attachment" if any attachment is visible
   if (anyAttachmentVisible) return "Attachment";
+
+  // ✅ At this point, nothing is visible to the user
+  // Check if anything was deleted for everyone
   if (textDeletedForEveryone || attachments.some((a) => a.deletedForEveryone)) {
     return "This message was deleted";
   }
+
+  // ✅ Everything was only deleted for this specific user
   return false;
 }
 

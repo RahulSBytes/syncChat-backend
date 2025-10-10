@@ -13,14 +13,8 @@ const chatSchema = new mongoose.Schema(
     },
     description: String,
     avatar: {
-      public_id: {
-        type: String,
-        default: null,
-      },
-      url: {
-        type: String,
-        default: null,
-      },
+      public_id: { type: String, default: null },
+      url: { type: String, default: null },
     },
     members: [
       {
@@ -28,15 +22,6 @@ const chatSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
-    lastMessage: {
-      message:String,
-      messageId : {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Message",
-      },
-    },
-
-    lastMessageTime: Date,
   },
   { timestamps: true }
 );

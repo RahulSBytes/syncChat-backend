@@ -19,6 +19,7 @@ import socketHandler from "./utils/socket.js";
 import { errorHandlerMiddleware } from "./middleware/error.js";
 import { corsOptions } from "../constants/constants.js";
 import socketAuthenticator from "./middleware/socketAuthenticator.js";
+import { createGroupChats, createSingleChats } from "../seeders/chat.js";
 
 
 const app = express();
@@ -31,6 +32,9 @@ export const userSocketIDs = new Map();
 // ------ Database connection
 // console.log(process.env.MONGODB_URL)
 connectDB(process.env.MONGODB_URL);
+
+// createSingleChats(50)
+// createGroupChats(30)
 
 app.use(cors(corsOptions));
 
