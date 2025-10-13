@@ -22,6 +22,13 @@ const chatSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    removedMembers: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      removedAt: Date,
+    }],
   },
   { timestamps: true }
 );

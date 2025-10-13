@@ -3,6 +3,7 @@ import {
   CHAT_CLEARED,
   GROUP_MEMBER_UPDATED,
   MESSAGE_DELETED,
+  NEW_CONTACT_ADDED,
   NEW_MESSAGE,
   REFETCH_CHATS,
   UPDATE_LAST_MESSAGE,
@@ -22,6 +23,82 @@ import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import { v2 as cloudinary } from "cloudinary";
 import ChatRequest from "../models/chatrequest.model.js";
 import { emitEvent } from "../utils/socketHelpers.js";
+
+// blocking feature
+
+// Block a chat (for current user)
+export async function blockChat(req, res, next) {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user;
+
+    // Check if chat exists
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return next(new customError("Chat not found", 404));
+    }
+
+    // Check if user is member of this chat
+    if (!chat.members.includes(userId)) {
+      return next(new customError("You are not a member of this chat", 403));
+    }
+
+    // Update UserChat to mark as blocked
+    const userChat = await UserChat.findOneAndUpdate(
+      { userId, chatId },
+      {
+        isBlocked: true,
+        blockedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    if (!userChat) {
+      return next(new customError("Chat relationship not found", 404));
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Chat blocked successfully",
+      userChat,
+    });
+  } catch (error) {
+    console.error("Block chat error:", error);
+    next(error);
+  }
+}
+
+// Unblock a chat
+export async function unblockChat(req, res, next) {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user;
+
+    const userChat = await UserChat.findOneAndUpdate(
+      { userId, chatId },
+      {
+        isBlocked: false,
+        blockedAt: null,
+      },
+      { new: true }
+    );
+
+    if (!userChat) {
+      return next(new customError("Chat relationship not found", 404));
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Chat unblocked successfully",
+      userChat,
+    });
+  } catch (error) {
+    console.error("Unblock chat error:", error);
+    next(error);
+  }
+}
+
+// blocking feature ends
 
 export async function deleteForMe(req, res, next) {
   try {
@@ -80,7 +157,10 @@ export async function deleteForMe(req, res, next) {
           .lean();
 
         if (prev) {
-          text = getLastMessagePreview(modifyMessage([prev],req.user)[0], req.user);
+          text = getLastMessagePreview(
+            modifyMessage([prev], req.user)[0],
+            req.user
+          );
           lastMessageObj = { messageId: prev._id, message: text };
         } else {
           lastMessageObj = { messageId: null, message: null };
@@ -110,7 +190,7 @@ export async function deleteForMe(req, res, next) {
     });
   } catch (error) {
     console.error("Delete-for-me error:", error);
-    return next(new customError("error deleting message for me",400 ))
+    return next(new customError("error deleting message for me", 400));
   }
 }
 
@@ -120,7 +200,9 @@ export async function deleteForEveryone(req, res, next) {
     const { messageInfo, chatId } = req.body;
 
     if (!messageId || !messageInfo) {
-      return next(new customError("message id and message info both are required", 404));
+      return next(
+        new customError("message id and message info both are required", 404)
+      );
     }
 
     const [chat, message] = await Promise.all([
@@ -253,21 +335,48 @@ export async function clearChat(req, res, next) {
     const { chatId } = req.params;
     if (!chatId) return next(new customError("chat id is required", 404));
 
-    const chatDoc = await Chat.findById(chatId).select("members");
-    if (!chatDoc) return next(new customError("chat not found", 404));
+    // ✅ Check membership via UserChat (more accurate)
+    const userChat = await UserChat.findOne({
+      userId: req.user,
+      chatId: chatId,
+    });
 
-    const isMember = chatDoc.members.some((m) => m.toString() === req.user);
-
-    if (!isMember) {
-      return next(new customError("you are not a member of this chat", 403));
+    if (!userChat) {
+      return next(
+        new customError("Chat not found or you are not a member", 404)
+      );
     }
 
-    await Message.updateMany(
-      { chat: chatId },
+    // Get all messages in this chat
+    const messages = await Message.find({ chat: chatId });
+
+    // ✅ Update each message individually to handle nested arrays correctly
+    const updatePromises = messages.map(async (message) => {
+      // Add user to textDeletedFor if not already there
+      if (!message.textDeletedFor.includes(req.user)) {
+        message.textDeletedFor.push(req.user);
+      }
+
+      // Add user to each attachment's deletedFor array
+      if (message.attachments && message.attachments.length > 0) {
+        message.attachments.forEach((attachment) => {
+          if (!attachment.deletedFor.includes(req.user)) {
+            attachment.deletedFor.push(req.user);
+          }
+        });
+      }
+
+      return message.save();
+    });
+
+    await Promise.all(updatePromises);
+
+    await UserChat.findOneAndUpdate(
+      { userId: req.user, chatId: chatId },
       {
-        $addToSet: {
-          textDeletedFor: req.user,
-          "attachments.$[].deletedFor": req.user,
+        lastMessage: {
+          message: "Chat cleared",
+          messageId: null,
         },
       }
     );
@@ -321,8 +430,11 @@ export async function createGroupChat(req, res, next) {
 
     const check = await Promise.all(userChatPromises);
 
-    // emitEvent(req, ALERT, allMembers, "welcome to group");
-    // emitEvent(req, REFETCH_CHATS, members, "chat list refreshed");
+    console.log("here i am")
+       emitEvent(req, REFETCH_CHATS, group.members);
+
+    console.log("here i am")
+
     return res.status(200).json({
       success: true,
       message: "group successfully created",
@@ -336,7 +448,6 @@ export async function createGroupChat(req, res, next) {
 // ############----- Get all chats of a user
 
 export async function getMyChats(req, res, next) {
-  console.log("hey reached the backend");
   try {
     // Get user's chat relationships with their personalized last messages
     const userChats = await UserChat.find({ userId: req.user })
@@ -345,11 +456,16 @@ export async function getMyChats(req, res, next) {
         populate: [
           {
             path: "members",
-            select: "fullName avatar username email isOnline",
+            select: "fullName avatar username email",
           },
           { path: "creator", select: "fullName avatar username" },
+          {
+            path: "removedMembers.userId",
+            select: "fullName avatar username email",
+          },
         ],
       })
+
       .sort({ lastMessageTime: -1 })
       .lean();
 
@@ -361,6 +477,10 @@ export async function getMyChats(req, res, next) {
     const chats = userChats.map((uc) => ({
       ...uc.chatId,
       lastMessage: uc.lastMessage,
+      lastMessageTime: uc.lastMessageTime,
+      // ✅ Pass these to frontend
+      isActive: uc.isActive,
+      leftAt: uc.leftAt,
     }));
 
     return res.status(200).json({
@@ -401,13 +521,11 @@ export async function findUsers(req, res, next) {
         $or: [{ groupChat: false }, { groupChat: { $exists: false } }],
       },
       "members"
-    ).lean(); // Add .lean() for better performance
-
-    // Get pending friend requests we've sent
+    ).lean(); 
     const sentFriendRequests = await ChatRequest.find(
       { sender: req.user },
       "receiver"
-    ).lean(); // Add .lean() for better performance
+    ).lean(); 
 
     const pendingRequestReceivers = sentFriendRequests.map((el) =>
       el.receiver.toString()
@@ -425,10 +543,9 @@ export async function findUsers(req, res, next) {
     const excludedIds = [
       ...directChatUserIds,
       ...pendingRequestReceivers,
-      req.user.toString(), // Ensure string
+      req.user.toString(), 
     ];
 
-    // Build search regex with word boundaries for more precise matching
     const searchRegex = new RegExp(
       query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
       "i"
@@ -447,14 +564,14 @@ export async function findUsers(req, res, next) {
       ],
     })
       .select("username email fullName avatar") // Only select needed fields
-      .limit(20) // Limit results to prevent performance issues
-      .lean(); // Better performance
+      .limit(20)
+      .lean(); 
 
-    // Always return an array (empty if no results)
+    
     res.status(200).json(users);
   } catch (err) {
     console.error("Error in findUsers:", err);
-    // Return empty array on error instead of throwing
+   
     res.status(500).json({ message: "Internal server error" });
   }
 }
@@ -469,8 +586,8 @@ export async function addMembers(req, res, next) {
   }
 
   const [chat, user] = await Promise.all([
-    Chat.findById(chatId, "members creator"),
-    User.find({ username }),
+    Chat.findById(chatId).select("members creator groupChat"),
+    User.findOne({ username }).select("_id username fullName avatar"),
   ]);
 
   if (!chat) {
@@ -481,30 +598,55 @@ export async function addMembers(req, res, next) {
     return next(new customError("User not found", 404));
   }
 
-  if (chat.members.length === 2) {
-    return next(new customError("This is not a group chat", 404));
+  if (!chat.groupChat) {
+    return next(new customError("This is not a group chat", 400));
   }
 
-  if (chat.creator.toString() != req.user) {
-    return next(new customError("you are not allowed to add members", 404));
+  if (!areIdsEqual(chat.creator, req.user)) {
+    return next(new customError("Only the creator can add members", 403));
   }
 
-  if (chat.members.includes(user[0]._id)) {
+  if (chat.members.some((id) => areIdsEqual(id, user._id))) {
     return next(new customError("User is already a member of this group", 400));
   }
 
-  const updatedChat = await Chat.findByIdAndUpdate(
-    chatId,
-    { $addToSet: { members: user[0]._id } },
-    { new: true }
-  )
-    .populate("members")
-    .populate("creator", "fullName");
+  chat.removedMembers.filter((el) => !areIdsEqual(el.userId, user._id));
+  chat.members.push(user._id);
+  await chat.save();
 
-  // console.log("reached backend ::",updatedChat)
-  emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, updatedChat);
+ 
+  const existingUserChat = await UserChat.findOne({
+    userId: user._id,
+    chatId: chat._id,
+  });
 
-  return res.status(201).json({
+  if (existingUserChat) {
+
+    existingUserChat.isActive = true;
+    existingUserChat.leftAt = null;
+    await existingUserChat.save();
+  } else {
+    
+    await UserChat.create({
+      userId: user._id,
+      chatId: chat._id,
+      lastMessage: { message: "no message yet" },
+      lastMessageTime: null,
+      isActive: true,
+    });
+  }
+
+  const updatedChat = await Chat.findById(chatId)
+    .populate("members", "fullName username avatar")
+    .populate("removedMembers.userId", "fullName username avatar");
+
+  emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, {
+    _id: updatedChat._id,
+    removedMembers: updatedChat.removedMembers,
+    members: updatedChat.members,
+  });
+
+  return res.status(200).json({
     success: true,
     message: "member added successfully",
   });
@@ -513,56 +655,95 @@ export async function addMembers(req, res, next) {
 // ############----- remove member
 
 export async function removeMember(req, res, next) {
-  const { chatId, memberId } = req.body;
+  try {
+    const { chatId, memberId } = req.body;
 
-  if (!chatId || !memberId) {
-    return next(new customError("chatId and userId are required", 400));
+    if (!chatId || !memberId) {
+      return next(new customError("chatId and userId are required", 400));
+    }
+
+    const chat = await Chat.findById(chatId)
+      .select("members creator groupChat removedMembers")
+      .populate("members", "fullName username avatar")
+      .populate("creator", "fullName username avatar");
+
+    if (!chat) {
+      return next(new customError("Chat not found", 404));
+    }
+
+    if (!chat.groupChat) {
+      return next(new customError("This is not a group chat", 400));
+    }
+
+    if (!areIdsEqual(chat.creator._id, req.user)) {
+      return next(new customError("Only the creator can remove members", 403));
+    }
+
+    if (!chat.members.some((member) => areIdsEqual(member._id, memberId))) {
+      return next(new customError("User is not a member of this group", 400));
+    }
+
+    if (areIdsEqual(chat.creator, req.user)) {
+      return next(new customError("Cannot remove the creator", 403));
+    }
+
+    if (chat.members.length <= 2) {
+      return next(new customError("A group must have at least 2 members", 400));
+    }
+
+    // Remove member from chat
+    chat.members = chat.members.filter((m) => !areIdsEqual(m._id, memberId));
+
+    chat.removedMembers.push({
+      userId: memberId,
+      removedAt: new Date(),
+    });
+
+    await chat.save();
+
+    await UserChat.updateOne(
+      { userId: memberId, chatId: chatId },
+      {
+        isActive: false,
+        leftAt: new Date(),
+      }
+    );
+
+    const updatedChat = await Chat.findById(chatId)
+      .populate("members", "fullName username avatar")
+      .populate("removedMembers.userId", "fullName username avatar");
+
+    emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, {
+      _id: updatedChat._id,
+      removedMembers: updatedChat.removedMembers,
+      members: updatedChat.members,
+    });
+
+    // Notify removed member
+    // emitEvent(req, REFETCH_CHATS, [{ _id: memberId }], {
+    //   chatId,
+    //   removed: true,
+    // });
+
+    return res.status(200).json({
+      success: true,
+      message: "Member removed successfully",
+      data: updatedChat,
+    });
+  } catch (error) {
+    console.log("error removing members : ", error);
+    next(error);
   }
-
-  const chat = await Chat.findById(chatId)
-    .populate("members")
-    .populate("creator", "fullName"); // new learning
-
-  if (!chat) {
-    return next(new customError("Chat not found", 404));
-  }
-
-  if (chat.creator._id != req.user) {
-    return next(new customError("you are not allowed to remove members", 404));
-  }
-
-  if (!chat.members.some((member) => member._id == memberId)) {
-    return next(new customError("User is not a member of this group", 400));
-  }
-
-  if (chat.members.length <= 2) {
-    return next(new customError("A group must have atleast 2 members", 400));
-  }
-
-  const updatedChat = await Chat.findByIdAndUpdate(
-    chatId,
-    { $pull: { members: memberId } },
-    { new: true } // updated doc
-  )
-    .populate("members")
-    .populate("creator", "fullName");
-
-  emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, updatedChat);
-
-  return res.status(200).json({
-    success: true,
-    message: "Member removed successfully",
-  });
 }
 
 // ############-----member leave group
 
 export async function leaveGroup(req, res, next) {
-  const { chatId, newAdminId = null } = req.body;
+  const { chatId, newCreatorId = null } = req.body;
   const userId = req.user;
 
   if (!chatId) {
-    return next(new customError("chatId required", 400));
+    return next(new customError("chatId is required", 400));
   }
 
   const chat = await Chat.findById(chatId, "members creator"); // new learning
@@ -571,25 +752,48 @@ export async function leaveGroup(req, res, next) {
     return next(new customError("Chat not found", 404));
   }
 
-  if (!chat.members.includes(userId)) {
-    return next(new customError("you're not a group member", 400));
+  if (!chat.groupChat) {
+    return next(new customError("This is not a group chat", 400));
   }
 
-  if (chat.creator == userId) {
-    if (!newAdminId || !chat.members.includes(newAdminId)) {
-      return next(new customError("something went wrong", 404));
+  if (!chat.members.some((m) => areIdsEqual(m._id, userId))) {
+    return next(new customError("User is not a member of this group", 400));
+  }
+
+  if (areIdsEqual(chat.creator, userId)) {
+    if (!newCreatorId) {
+      return next(
+        new customError("Creator must transfer ownership before leaving", 400)
+      );
     }
 
-    await Chat.updateOne(
-      { _id: chatId },
-      {
-        $set: { creator: newAdminId }, // update the creator
-        $pull: { members: userId }, // remove the member
-      }
-    );
+    if (!chat.members.some((m) => String(m._id) === String(newCreatorId))) {
+      return next(new customError("New creator must be a group member", 400));
+    }
+
+    // Transfer ownership
+    chat.creator = newCreatorId;
   }
 
-  await Chat.updateOne({ _id: chatId }, { $pull: { members: userId } });
+  // Remove user from members
+  chat.members = chat.members.filter((m) => String(m._id) !== String(userId));
+
+  // Add to removedMembers
+  chat.removedMembers.push({
+    userId: userId,
+    removedAt: new Date(),
+  });
+
+  await chat.save();
+
+  // ✅ Delete UserChat entry for user who left
+  await UserChat.findOneAndUpdate(
+    { userId: userId, chatId: chatId },
+    {
+      isActive: false,
+      leftAt: new Date(),
+    }
+  );
 
   emitEvent(req, ALERT, chat.members, `${userId} left the group`);
 
@@ -602,29 +806,54 @@ export async function leaveGroup(req, res, next) {
 // ############-----delete group
 
 export async function deleteGroup(req, res, next) {
-  const { chatId } = req.body;
-  const userId = req.user;
+  try {
+    const { chatId } = req.body;
+    const userId = req.user;
 
-  if (!chatId) {
-    return next(new customError("chatId id required", 400));
+    if (!chatId) {
+      return next(new customError("chatId is required", 400));
+    }
+
+    const chat = await Chat.findById(chatId).select(
+      "members creator groupChat"
+    );
+
+    if (!chat) {
+      return next(new customError("Chat not found", 404));
+    }
+
+    // ✅ Ensure it's a group chat
+    if (!chat.groupChat) {
+      return next(new customError("Cannot delete direct messages", 400));
+    }
+
+    // ✅ Proper ObjectId comparison
+    if (!areIdsEqual(chat.creator, userId)) {
+      return next(
+        new customError("Only the creator can delete the group", 403)
+      );
+    }
+
+    // Store members before deletion (for notifications)
+    const members = [...chat.members];
+
+    await Promise.all([
+      await UserChat.deleteMany({ chatId: chatId }),
+      await Message.deleteMany({ chat: chatId }),
+      await Chat.findByIdAndDelete(chatId),
+    ]);
+
+    // ✅ Trigger chat list refresh for all members
+    emitEvent(req, REFETCH_CHATS, members, { chatId });
+
+    return res.status(200).json({
+      success: true,
+      message: "Group deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting group:", error);
+    next(error);
   }
-
-  const chat = await Chat.findById(chatId, "members creator"); // new learning
-
-  if (!chat) {
-    return next(new customError("Chat not found", 404));
-  }
-
-  if (chat.creator != userId) {
-    return next(new customError("you aren't admin", 404));
-  }
-
-  await Chat.findByIdAndDelete(chatId);
-
-  return res.status(200).json({
-    success: true,
-    message: "group deleted",
-  });
 }
 
 // ############-----send attachment
@@ -704,6 +933,8 @@ export async function sendMessage(req, res, next) {
       },
       lastMessageTime: message.createdAt,
     });
+
+
 
     emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
 

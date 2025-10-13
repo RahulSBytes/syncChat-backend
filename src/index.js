@@ -20,6 +20,7 @@ import { errorHandlerMiddleware } from "./middleware/error.js";
 import { corsOptions } from "../constants/constants.js";
 import socketAuthenticator from "./middleware/socketAuthenticator.js";
 import { createGroupChats, createSingleChats } from "../seeders/chat.js";
+import { createUserChatsWithProgress } from "../seeders/createuserchat.js";
 
 
 const app = express();
@@ -35,6 +36,7 @@ connectDB(process.env.MONGODB_URL);
 
 // createSingleChats(50)
 // createGroupChats(30)
+// createUserChatsWithProgress()
 
 app.use(cors(corsOptions));
 

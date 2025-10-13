@@ -15,6 +15,8 @@ import {
   deleteForMe,
   deleteForEveryone,
   clearChat,
+  blockChat,
+  unblockChat,
 } from "../controllers/chat.controller.js";
 import isAuthenticated from "../middleware/isAuthenticated.js";
 import { attachmentFiles, singleAvatar } from "../middleware/multer.js";
@@ -38,5 +40,7 @@ router.patch("/addmember", addMembers);
 router.delete("/:messageId/delete-for-me", deleteForMe);
 router.delete("/:messageId/delete-for-everyone", deleteForEveryone);
 router.delete("/:chatId/clear-chat", clearChat);
+router.post("/chat/:chatId/block", blockChat);
+router.delete("/chat/:chatId/unblock", unblockChat);
 
 export default router;
