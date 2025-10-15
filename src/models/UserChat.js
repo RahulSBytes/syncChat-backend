@@ -32,7 +32,6 @@ const userChatSchema = new mongoose.Schema(
     },
     leftAt: Date,
 
-    //blocking
     isBlocked: {
       type: Boolean,
       default: false,

@@ -430,10 +430,8 @@ export async function createGroupChat(req, res, next) {
 
     const check = await Promise.all(userChatPromises);
 
-    console.log("here i am")
-       emitEvent(req, REFETCH_CHATS, group.members);
+    emitEvent(req, REFETCH_CHATS, group.members);
 
-    console.log("here i am")
 
     return res.status(200).json({
       success: true,
@@ -521,11 +519,11 @@ export async function findUsers(req, res, next) {
         $or: [{ groupChat: false }, { groupChat: { $exists: false } }],
       },
       "members"
-    ).lean(); 
+    ).lean();
     const sentFriendRequests = await ChatRequest.find(
       { sender: req.user },
       "receiver"
-    ).lean(); 
+    ).lean();
 
     const pendingRequestReceivers = sentFriendRequests.map((el) =>
       el.receiver.toString()
@@ -543,7 +541,7 @@ export async function findUsers(req, res, next) {
     const excludedIds = [
       ...directChatUserIds,
       ...pendingRequestReceivers,
-      req.user.toString(), 
+      req.user.toString(),
     ];
 
     const searchRegex = new RegExp(
@@ -565,13 +563,12 @@ export async function findUsers(req, res, next) {
     })
       .select("username email fullName avatar") // Only select needed fields
       .limit(20)
-      .lean(); 
+      .lean();
 
-    
     res.status(200).json(users);
   } catch (err) {
     console.error("Error in findUsers:", err);
-   
+
     res.status(500).json({ message: "Internal server error" });
   }
 }
@@ -579,77 +576,82 @@ export async function findUsers(req, res, next) {
 // ############----- add member
 
 export async function addMembers(req, res, next) {
-  const { chatId, username } = req.body;
+  try {
+    const { chatId, username } = req.body;
 
-  if (!chatId || !username) {
-    return next(new customError("chatId and userId both are required", 400));
-  }
+    if (!chatId || !username) {
+      return next(new customError("chatId and userId both are required", 400));
+    }
 
-  const [chat, user] = await Promise.all([
-    Chat.findById(chatId).select("members creator groupChat"),
-    User.findOne({ username }).select("_id username fullName avatar"),
-  ]);
+    const [chat, user] = await Promise.all([
+      Chat.findById(chatId).select("members creator groupChat removedMembers"),
+      User.findOne({ username }).select("_id username fullName avatar"),
+    ]);
 
-  if (!chat) {
-    return next(new customError("Chat not found", 404));
-  }
+    if (!chat) {
+      return next(new customError("Chat not found", 404));
+    }
 
-  if (!user) {
-    return next(new customError("User not found", 404));
-  }
+    if (!user) {
+      return next(new customError("User not found", 404));
+    }
 
-  if (!chat.groupChat) {
-    return next(new customError("This is not a group chat", 400));
-  }
+    if (!chat.groupChat) {
+      return next(new customError("This is not a group chat", 400));
+    }
 
-  if (!areIdsEqual(chat.creator, req.user)) {
-    return next(new customError("Only the creator can add members", 403));
-  }
+    if (!areIdsEqual(chat.creator, req.user)) {
+      return next(new customError("Only the creator can add members", 403));
+    }
 
-  if (chat.members.some((id) => areIdsEqual(id, user._id))) {
-    return next(new customError("User is already a member of this group", 400));
-  }
+    if (chat.members.some((id) => areIdsEqual(id, user._id))) {
+      return next(
+        new customError("User is already a member of this group", 400)
+      );
+    }
 
-  chat.removedMembers.filter((el) => !areIdsEqual(el.userId, user._id));
-  chat.members.push(user._id);
-  await chat.save();
+    chat.removedMembers = chat.removedMembers.filter(
+      (el) => !areIdsEqual(el.userId, user._id)
+    );
+    chat.members.push(user._id);
+    await chat.save();
 
- 
-  const existingUserChat = await UserChat.findOne({
-    userId: user._id,
-    chatId: chat._id,
-  });
-
-  if (existingUserChat) {
-
-    existingUserChat.isActive = true;
-    existingUserChat.leftAt = null;
-    await existingUserChat.save();
-  } else {
-    
-    await UserChat.create({
+    const existingUserChat = await UserChat.findOne({
       userId: user._id,
       chatId: chat._id,
-      lastMessage: { message: "no message yet" },
-      lastMessageTime: null,
-      isActive: true,
     });
+
+    if (existingUserChat) {
+      existingUserChat.isActive = true;
+      existingUserChat.leftAt = null;
+      await existingUserChat.save();
+    } else {
+      await UserChat.create({
+        userId: user._id,
+        chatId: chat._id,
+        lastMessage: { message: "no message yet" },
+        lastMessageTime: null,
+        isActive: true,
+      });
+    }
+
+    const updatedChat = await Chat.findById(chatId)
+      .populate("members", "fullName username avatar")
+      .populate("removedMembers.userId", "fullName username avatar");
+
+    emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, {
+      _id: updatedChat._id,
+      removedMembers: updatedChat.removedMembers,
+      members: updatedChat.members,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "member added successfully",
+    });
+  } catch (error) {
+    console.log("error adding members :: ", error);
   }
-
-  const updatedChat = await Chat.findById(chatId)
-    .populate("members", "fullName username avatar")
-    .populate("removedMembers.userId", "fullName username avatar");
-
-  emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, {
-    _id: updatedChat._id,
-    removedMembers: updatedChat.removedMembers,
-    members: updatedChat.members,
-  });
-
-  return res.status(200).json({
-    success: true,
-    message: "member added successfully",
-  });
 }
 
 // ############----- remove member
@@ -739,68 +741,80 @@ export async function removeMember(req, res, next) {
 // ############-----member leave group
 
 export async function leaveGroup(req, res, next) {
-  const { chatId, newCreatorId = null } = req.body;
-  const userId = req.user;
+  try {
+    const { chatId, newCreatorId = null } = req.body;
+    const userId = req.user;
 
-  if (!chatId) {
-    return next(new customError("chatId is required", 400));
-  }
-
-  const chat = await Chat.findById(chatId, "members creator"); // new learning
-
-  if (!chat) {
-    return next(new customError("Chat not found", 404));
-  }
-
-  if (!chat.groupChat) {
-    return next(new customError("This is not a group chat", 400));
-  }
-
-  if (!chat.members.some((m) => areIdsEqual(m._id, userId))) {
-    return next(new customError("User is not a member of this group", 400));
-  }
-
-  if (areIdsEqual(chat.creator, userId)) {
-    if (!newCreatorId) {
-      return next(
-        new customError("Creator must transfer ownership before leaving", 400)
-      );
+    if (!chatId) {
+      return next(new customError("chatId is required", 400));
     }
 
-    if (!chat.members.some((m) => String(m._id) === String(newCreatorId))) {
-      return next(new customError("New creator must be a group member", 400));
+    const chat = await Chat.findById( chatId, "members creator groupChat removedMembers"); // new learning
+
+    if (!chat) {
+      return next(new customError("Chat not found", 404));
     }
 
-    // Transfer ownership
-    chat.creator = newCreatorId;
+    if (!chat.groupChat) {
+      return next(new customError("This is not a group chat", 400));
+    }
+
+
+    if (!chat.members.some((m) => areIdsEqual(m, userId))) {
+      return next(new customError("User is not a member of this group", 400));
+    }
+
+    if (areIdsEqual(chat.creator, userId)) {
+      if (!newCreatorId) {
+        return next(
+          new customError("Creator must transfer ownership before leaving", 400)
+        );
+      }
+
+      if (!chat.members.some((m) => areIdsEqual(m, newCreatorId))) {
+        return next(new customError("New creator must be a group member", 400));
+      }
+
+      // Transfer ownership
+      chat.creator = newCreatorId;
+    }
+
+    chat.members = chat.members.filter((m) => !areIdsEqual(m, userId));
+
+    chat.removedMembers.push({
+      userId: userId,
+      removedAt: new Date(),
+    });
+
+    await chat.save();
+
+    await UserChat.findOneAndUpdate(
+      { userId: userId, chatId: chatId },
+      {
+        isActive: false,
+        leftAt: new Date(),
+      }
+    );
+
+    const updatedChat = await Chat.findById(chatId)
+      .populate("members", "fullName username avatar")
+      .populate("removedMembers.userId", "fullName username avatar");
+
+     
+    emitEvent(req, GROUP_MEMBER_UPDATED, [...updatedChat.members, {_id : userId } ], {
+      _id,
+      removedMembers,
+      members,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "you left",
+      data: updatedChat,
+    });
+  } catch (error) {
+    console.log("error leaving ::", error);
   }
-
-  // Remove user from members
-  chat.members = chat.members.filter((m) => String(m._id) !== String(userId));
-
-  // Add to removedMembers
-  chat.removedMembers.push({
-    userId: userId,
-    removedAt: new Date(),
-  });
-
-  await chat.save();
-
-  // ✅ Delete UserChat entry for user who left
-  await UserChat.findOneAndUpdate(
-    { userId: userId, chatId: chatId },
-    {
-      isActive: false,
-      leftAt: new Date(),
-    }
-  );
-
-  emitEvent(req, ALERT, chat.members, `${userId} left the group`);
-
-  return res.status(200).json({
-    success: true,
-    message: "you left",
-  });
 }
 
 // ############-----delete group
@@ -822,19 +836,16 @@ export async function deleteGroup(req, res, next) {
       return next(new customError("Chat not found", 404));
     }
 
-    // ✅ Ensure it's a group chat
     if (!chat.groupChat) {
       return next(new customError("Cannot delete direct messages", 400));
     }
 
-    // ✅ Proper ObjectId comparison
     if (!areIdsEqual(chat.creator, userId)) {
       return next(
         new customError("Only the creator can delete the group", 403)
       );
     }
 
-    // Store members before deletion (for notifications)
     const members = [...chat.members];
 
     await Promise.all([
@@ -843,7 +854,6 @@ export async function deleteGroup(req, res, next) {
       await Chat.findByIdAndDelete(chatId),
     ]);
 
-    // ✅ Trigger chat list refresh for all members
     emitEvent(req, REFETCH_CHATS, members, { chatId });
 
     return res.status(200).json({
@@ -933,8 +943,6 @@ export async function sendMessage(req, res, next) {
       },
       lastMessageTime: message.createdAt,
     });
-
-
 
     emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
 
