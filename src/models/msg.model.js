@@ -52,6 +52,25 @@ const messageSchema = new mongoose.Schema(
       enum: ["text", "image", "video", "audio", "file"],
       default: "text",
     },
+
+    // --------------------------
+  status: {
+      type: String,
+      enum: ["sent", "delivered", "read"],
+      default: "sent",
+    },
+    deliveredTo: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      }
+    ],
+    readBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      }
+    ],
   },
   { timestamps: true }
 );

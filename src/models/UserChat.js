@@ -39,6 +39,18 @@ const userChatSchema = new mongoose.Schema(
     
     blockedAt: Date,
 
+    // ✅ Unread count
+    unreadCount: {
+      type: Number,
+      default: 0,
+    },
+
+    // ✅ Last read message (for tracking)
+    lastReadMessageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+    },
+
     // // Bonus: other user-specific data
     // unreadCount: { type: Number, default: 0 },
     // isPinned: { type: Boolean, default: false },

@@ -1,5 +1,6 @@
-import Chat from "../models/chat.model";
-import UserChat from "../models/UserChat";
+import UserChat from "../models/UserChat.js";
+import { areIdsEqual } from "../utils/helpers.js";
+import { customError } from "./error.js";
 
 export async function checkIfChatBlockedMiddleware(req, res, next) {
   try {
@@ -7,37 +8,26 @@ export async function checkIfChatBlockedMiddleware(req, res, next) {
     const userId = req.user;
 
     // Check if current user has blocked this chat
-    const userChat = await UserChat.findOne({
-      userId,
+    const userChat = await UserChat.find({
       chatId,
-      isBlocked: true,
-    });
+    }).populate("chatId", "groupChat");
 
-    if (userChat) {
-      return next(
-        new customError("You have blocked this chat. Unblock to send messages.", 403)
-      );
+    if (userChat[0].chatId.groupChat) {
+     return next();
     }
 
-    // Optional: Check if other user (in DM) has blocked you
-    const chat = await Chat.findById(chatId).select("members groupChat");
-    
-    if (chat && !chat.groupChat) {
-      const otherUserId = chat.members.find(
-        (id) => String(id) !== String(userId)
-      );
+    if ( userChat.some((el) => areIdsEqual(el.userId, userId) && el.isBlocked ) ) {
+      return res.status(400).json({
+      success: false,
+      message :"You have blocked this chat. Unblock to send messages.",
+    });
+    }
 
-      const otherUserChat = await UserChat.findOne({
-        userId: otherUserId,
-        chatId,
-        isBlocked: true,
-      });
-
-      if (otherUserChat) {
-        return next(
-          new customError("Cannot send message - chat is unavailable", 403)
-        );
-      }
+    if ( userChat.some( (el) => !areIdsEqual(el.userId, userId) && el.isBlocked ) ) {
+      return res.status(400).json({
+      success: false,
+      message :"Cannot send message - chat is unavailable",
+    });
     }
 
     next();

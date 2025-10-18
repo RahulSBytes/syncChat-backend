@@ -1,12 +1,16 @@
 import {
   ALERT,
   CHAT_CLEARED,
-  GROUP_MEMBER_UPDATED,
+  UPDATE_CHAT,
   MESSAGE_DELETED,
   NEW_CONTACT_ADDED,
   NEW_MESSAGE,
   REFETCH_CHATS,
   UPDATE_LAST_MESSAGE,
+  UPDATE_UNREAD_COUNT,
+  MESSAGE_DELIVERED,
+  MESSAGE_READ,
+  UNREAD_COUNT_UPDATED,
 } from "../../constants/events.js";
 import { customError } from "../middleware/error.js";
 import Chat from "../models/chat.model.js";
@@ -23,6 +27,266 @@ import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import { v2 as cloudinary } from "cloudinary";
 import ChatRequest from "../models/chatrequest.model.js";
 import { emitEvent } from "../utils/socketHelpers.js";
+import mongoose from "mongoose";
+
+// tick features
+
+// controllers/message.controller.js
+
+export async function markMessagesAsDelivered(req, res, next) {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user;
+
+    // ✅ SIMPLE QUERY
+    const messages = await Message.find({
+      chat: chatId,
+      sender: { $ne: userId },
+      deliveredTo: { $nin: [userId] },
+    }).lean();
+
+    if (messages.length === 0) {
+      return res.status(200).json({ success: true, count: 0 });
+    }
+
+    const messageIds = messages.map((m) => m._id);
+
+    // ✅ SIMPLE UPDATE
+    await Message.updateMany(
+      { _id: { $in: messageIds } },
+      {
+        $addToSet: { deliveredTo: userId },
+        $set: { status: "delivered" },
+      }
+    );
+
+    // Verify update
+    const updated = await Message.findById(messageIds[0]);
+
+    const senders = [...new Set(messages.map((m) => String(m.sender)))].map(
+      (id) => ({ _id: id })
+    );
+
+    emitEvent(req, MESSAGE_DELIVERED, senders, {
+      chatId,
+      messageIds,
+      deliveredBy: userId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: messages.length,
+    });
+  } catch (error) {
+    console.error("❌ Mark delivered error:", error);
+    next(error);
+  }
+}
+
+
+// controllers/message.controller.js - ADD THIS
+export async function markAllMessagesAsDelivered(req, res, next) {
+  try {
+    const userId = req.user;
+
+
+    // ✅ Find all active chats for this user
+    const userChats = await UserChat.find({
+      userId: userId,
+      isActive: true
+    }).select("chatId");
+
+    const chatIds = userChats.map(uc => uc.chatId);
+
+    // ✅ Find ALL undelivered messages across all chats
+    const messages = await Message.find({
+      chat: { $in: chatIds },
+      sender: { $ne: userId },
+      deliveredTo: { $nin: [userId] }  // Not already delivered
+    }).lean();
+
+
+    if (messages.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No messages to mark as delivered",
+        count: 0
+      });
+    }
+
+    const messageIds = messages.map(m => m._id);
+
+    // ✅ Update all messages in one query
+    await Message.updateMany(
+      { _id: { $in: messageIds } },
+      {
+        $addToSet: { deliveredTo: userId },
+        $set: { status: "delivered" }
+      }
+    );
+
+
+    // ✅ Group messages by chat and sender for socket events
+    const messagesByChatSender = {};
+
+    messages.forEach(msg => {
+      const key = `${msg.chat}_${msg.sender}`;
+      if (!messagesByChatSender[key]) {
+        messagesByChatSender[key] = {
+          chatId: msg.chat.toString(),
+          senderId: msg.sender.toString(),
+          messageIds: []
+        };
+      }
+      messagesByChatSender[key].messageIds.push(msg._id);
+    });
+
+    // ✅ Emit socket events to each sender
+    Object.values(messagesByChatSender).forEach(({ chatId, senderId, messageIds }) => {
+      
+      emitEvent(req, MESSAGE_DELIVERED, [{ _id: senderId }], {
+        chatId,
+        messageIds,
+        deliveredBy: userId,
+        deliveredAt: new Date()
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "All messages marked as delivered",
+      count: messages.length
+    });
+
+  } catch (error) {
+    console.error("❌ Mark all delivered error:", error);
+    next(error);
+  }
+}
+
+// controllers/message.controller.js   
+
+export async function markMessagesAsRead(req, res, next) {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user;
+
+
+    // ✅ SIMPLE QUERY
+    const messages = await Message.find({
+      chat: chatId,
+      sender: { $ne: userId },
+      readBy: { $nin: [userId] },
+    }).lean();
+
+
+    if (messages.length === 0) {
+      return res.status(200).json({ success: true, count: 0 });
+    }
+
+    const messageIds = messages.map((m) => m._id);
+
+    // ✅ SIMPLE UPDATE
+    await Message.updateMany(
+      { _id: { $in: messageIds } },
+      {
+        $addToSet: {
+          deliveredTo: userId,
+          readBy: userId,
+        },
+        $set: { status: "read" },
+      }
+    );
+
+    // Reset unread count
+    await UserChat.findOneAndUpdate(
+      { userId, chatId },
+      { unreadCount: 0 }
+    );
+
+    const senders = [...new Set(messages.map((m) => String(m.sender)))].map(
+      (id) => ({ _id: id })
+    );
+
+    emitEvent(req, MESSAGE_READ, senders, {
+      chatId,
+      messageIds,
+      readBy: userId,
+    });
+
+    emitEvent(req, UNREAD_COUNT_UPDATED, [{ _id: userId }], {
+      chatId,
+      unreadCount: 0,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: messages.length,
+    });
+  } catch (error) {
+    console.error("❌ Mark read error:", error);
+    next(error);
+  }
+}
+
+// controllers/message.controller.js
+
+export async function getUndeliveredCount(req, res, next) {
+  try {
+    const userId = req.user;
+
+    const count = await Message.countDocuments({
+      sender: { $ne: userId },
+      "deliveredTo.userId": { $ne: userId },
+    });
+
+    return res.status(200).json({ success: true, count });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// controllers/message.controller.js
+
+export async function getUnreadCount(req, res, next) {
+  try {
+    const userId = req.user;
+
+    // ✅ Get total unread across all chats
+    const result = await UserChat.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(userId),
+          isActive: true,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalUnread: { $sum: "$unreadCount" },
+        },
+      },
+    ]);
+
+    const totalUnread = result[0]?.totalUnread || 0;
+
+    // ✅ Get per-chat unread counts
+    const chatUnreads = await UserChat.find({
+      userId,
+      isActive: true,
+      unreadCount: { $gt: 0 },
+    }).select("chatId unreadCount");
+
+    return res.status(200).json({
+      success: true,
+      totalUnread,
+      chatUnreads,
+    });
+  } catch (error) {
+    console.error("Get unread count error:", error);
+    next(error);
+  }
+}
 
 // blocking feature
 
@@ -57,6 +321,13 @@ export async function blockChat(req, res, next) {
       return next(new customError("Chat relationship not found", 404));
     }
 
+    const { chatId: _id, isBlocked, blockedAt } = userChat;
+    emitEvent(req, UPDATE_CHAT, [{ _id: userId }], {
+      _id,
+      isBlocked,
+      blockedAt,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Chat blocked successfully",
@@ -74,6 +345,17 @@ export async function unblockChat(req, res, next) {
     const { chatId } = req.params;
     const userId = req.user;
 
+    // Check if chat exists
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return next(new customError("Chat not found", 404));
+    }
+
+    // Check if user is member of this chat
+    if (!chat.members.includes(userId)) {
+      return next(new customError("You are not a member of this chat", 403));
+    }
+
     const userChat = await UserChat.findOneAndUpdate(
       { userId, chatId },
       {
@@ -86,6 +368,13 @@ export async function unblockChat(req, res, next) {
     if (!userChat) {
       return next(new customError("Chat relationship not found", 404));
     }
+
+    const { chatId: _id, isBlocked, blockedAt } = userChat;
+    emitEvent(req, UPDATE_CHAT, [{ _id: userId }], {
+      _id,
+      isBlocked,
+      blockedAt,
+    });
 
     return res.status(200).json({
       success: true,
@@ -432,7 +721,6 @@ export async function createGroupChat(req, res, next) {
 
     emitEvent(req, REFETCH_CHATS, group.members);
 
-
     return res.status(200).json({
       success: true,
       message: "group successfully created",
@@ -454,12 +742,12 @@ export async function getMyChats(req, res, next) {
         populate: [
           {
             path: "members",
-            select: "fullName avatar username email",
+            select: "fullName avatar username",
           },
           { path: "creator", select: "fullName avatar username" },
           {
             path: "removedMembers.userId",
-            select: "fullName avatar username email",
+            select: "fullName avatar username",
           },
         ],
       })
@@ -476,8 +764,10 @@ export async function getMyChats(req, res, next) {
       ...uc.chatId,
       lastMessage: uc.lastMessage,
       lastMessageTime: uc.lastMessageTime,
-      // ✅ Pass these to frontend
+      isBlocked: uc.isBlocked,
+      blockedAt: uc.blockedAt,
       isActive: uc.isActive,
+      unreadCount: uc.unreadCount || 0,
       leftAt: uc.leftAt,
     }));
 
@@ -639,7 +929,7 @@ export async function addMembers(req, res, next) {
       .populate("members", "fullName username avatar")
       .populate("removedMembers.userId", "fullName username avatar");
 
-    emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, {
+    emitEvent(req, UPDATE_CHAT, updatedChat.members, {
       _id: updatedChat._id,
       removedMembers: updatedChat.removedMembers,
       members: updatedChat.members,
@@ -715,7 +1005,7 @@ export async function removeMember(req, res, next) {
       .populate("members", "fullName username avatar")
       .populate("removedMembers.userId", "fullName username avatar");
 
-    emitEvent(req, GROUP_MEMBER_UPDATED, updatedChat.members, {
+    emitEvent(req, UPDATE_CHAT, updatedChat.members, {
       _id: updatedChat._id,
       removedMembers: updatedChat.removedMembers,
       members: updatedChat.members,
@@ -749,7 +1039,10 @@ export async function leaveGroup(req, res, next) {
       return next(new customError("chatId is required", 400));
     }
 
-    const chat = await Chat.findById( chatId, "members creator groupChat removedMembers"); // new learning
+    const chat = await Chat.findById(
+      chatId,
+      "members creator groupChat removedMembers"
+    ); // new learning
 
     if (!chat) {
       return next(new customError("Chat not found", 404));
@@ -758,7 +1051,6 @@ export async function leaveGroup(req, res, next) {
     if (!chat.groupChat) {
       return next(new customError("This is not a group chat", 400));
     }
-
 
     if (!chat.members.some((m) => areIdsEqual(m, userId))) {
       return next(new customError("User is not a member of this group", 400));
@@ -800,8 +1092,8 @@ export async function leaveGroup(req, res, next) {
       .populate("members", "fullName username avatar")
       .populate("removedMembers.userId", "fullName username avatar");
 
-     
-    emitEvent(req, GROUP_MEMBER_UPDATED, [...updatedChat.members, {_id : userId } ], {
+    const { _id, removedMembers, members } = updatedChat;
+    emitEvent(req, UPDATE_CHAT, [...updatedChat.members, { _id: userId }], {
       _id,
       removedMembers,
       members,
@@ -901,11 +1193,20 @@ export async function sendMessage(req, res, next) {
       attachments: attachments,
       sender: me._id,
       chat: chatId,
+      status: "sent", // Initial status
+      deliveredTo: [], // Empty initially
+      readBy: [], // Empty initially
     };
 
     message = (await Message.create(messageForDB)).toObject();
 
+
     const lastMessagePreview = getLastMessagePreview(message);
+
+    // ✅ Separate members: sender vs recipients
+    const recipients = chat.members.filter(
+      (memberId) => !areIdsEqual(memberId, me._id)
+    );
 
     // Update lastMessage for ALL chat members in UserChat collection
     const updatePromises = chat.members.map((memberId) =>
@@ -917,6 +1218,9 @@ export async function sendMessage(req, res, next) {
             messageId: message._id,
           },
           lastMessageTime: message.createdAt,
+          ...(areIdsEqual(me._id, memberId)
+            ? {}
+            : { $inc: { unreadCount: 1 } }),
         },
         { upsert: true, new: true } // Create if doesn't exist
       )
@@ -934,7 +1238,10 @@ export async function sendMessage(req, res, next) {
       },
     };
 
-    // Emit to all members - each will see the update in their chat list
+    // ✅ Emit to all members - new message
+    emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
+
+    // ✅ Emit last message update to all members
     emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
       chatId,
       lastMessageObj: {
@@ -944,7 +1251,13 @@ export async function sendMessage(req, res, next) {
       lastMessageTime: message.createdAt,
     });
 
-    emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
+    // ✅ NEW: Emit unread count update to recipients only
+    if (recipients.length > 0) {
+      emitEvent(req, UPDATE_UNREAD_COUNT, recipients, {
+        chatId,
+        increment: 1, // Increment by 1
+      });
+    }
 
     return res.status(200).json({
       success: true,

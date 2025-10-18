@@ -125,24 +125,23 @@ function modifyMessage(messages, userId) {
       messageType: msg.messageType,
       createdAt: msg.createdAt,
       updatedAt: msg.updatedAt,
-      isMine: String(msg.sender?._id) === String(userId),
-
-      // pass attachments through as‑is (with deletedForEveryone flag)
-      attachments: filteredAttachments,
-
+      status: msg.status,
+      deliveredTo: msg.deliveredTo,
+      readBy: msg.readBy,
       // keep flags intact !
       textDeletedForEveryone: msg.textDeletedForEveryone,
       textDeletedFor: msg.textDeletedFor,
 
+      // pass attachments through as‑is (with deletedForEveryone flag)
+      attachments: filteredAttachments,
       // decide what to show for text
       text:
         msg.textDeletedForEveryone || isTextDeletedForMe
-          ? '' // backend blanked text content
+          ? "" // backend blanked text content
           : msg.text,
     };
   });
 }
-
 
 const areIdsEqual = (id1, id2) => id1?.toString() === id2?.toString();
 
@@ -150,8 +149,9 @@ function getLastMessagePreview(message, userId) {
   const { text, textDeletedForEveryone, textDeletedFor, attachments } = message;
 
   // Check if text is visible to user
-  const textVisible = text && !textDeletedForEveryone && !textDeletedFor.includes(userId);
-  
+  const textVisible =
+    text && !textDeletedForEveryone && !textDeletedFor.includes(userId);
+
   // Check if any attachment is visible to user
   const anyAttachmentVisible = attachments.some(
     (a) => !a.deletedForEveryone && !a.deletedFor.includes(userId)
@@ -173,5 +173,10 @@ function getLastMessagePreview(message, userId) {
   return false;
 }
 
-
-export { cookieOptions, sendToken, modifyMessage,areIdsEqual,getLastMessagePreview };
+export {
+  cookieOptions,
+  sendToken,
+  modifyMessage,
+  areIdsEqual,
+  getLastMessagePreview,
+};
