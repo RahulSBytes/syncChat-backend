@@ -38,7 +38,11 @@ export async function markMessagesAsDelivered(req, res, next) {
     const { chatId } = req.params;
     const userId = req.user;
 
-    // ✅ SIMPLE QUERY
+    const chat = await Chat.findById(chatId).select("members");
+    if (!chat) {
+      return res.status(200).json({ success: true, count: 0 });
+    }
+
     const messages = await Message.find({
       chat: chatId,
       sender: { $ne: userId },
@@ -51,27 +55,48 @@ export async function markMessagesAsDelivered(req, res, next) {
 
     const messageIds = messages.map((m) => m._id);
 
-    // ✅ SIMPLE UPDATE
+    // Add to deliveredTo
     await Message.updateMany(
       { _id: { $in: messageIds } },
-      {
-        $addToSet: { deliveredTo: userId },
-        $set: { status: "delivered" },
-      }
+      { $addToSet: { deliveredTo: userId } }
     );
 
-    // Verify update
-    const updated = await Message.findById(messageIds[0]);
+    // Check which messages are fully delivered
+    const totalMembers = chat.members.length;
+    const requiredCount = totalMembers - 1;
 
-    const senders = [...new Set(messages.map((m) => String(m.sender)))].map(
-      (id) => ({ _id: id })
-    );
+    const updatedMessages = await Message.find({
+      _id: { $in: messageIds }
+    }).select("deliveredTo sender");
 
-    emitEvent(req, MESSAGE_DELIVERED, senders, {
-      chatId,
-      messageIds,
-      deliveredBy: userId,
-    });
+    const fullyDeliveredIds = updatedMessages
+      .filter(msg => msg.deliveredTo.length >= requiredCount)
+      .map(msg => msg._id);
+
+    // Update status only for fully delivered
+    if (fullyDeliveredIds.length > 0) {
+      await Message.updateMany(
+        { _id: { $in: fullyDeliveredIds } },
+        { $set: { status: "delivered" } }
+      );
+    }
+
+    // ✅ FIX: Only emit for FULLY delivered messages
+    if (fullyDeliveredIds.length > 0) {
+      const fullyDeliveredMessages = updatedMessages.filter(msg =>
+        fullyDeliveredIds.some(id => id.equals(msg._id))
+      );
+
+      const senders = [...new Set(fullyDeliveredMessages.map(m => String(m.sender)))].map(
+        (id) => ({ _id: id })
+      );
+
+      emitEvent(req, MESSAGE_DELIVERED, senders, {
+        chatId,
+        messageIds: fullyDeliveredIds,  // ✅ Only fully delivered IDs
+        deliveredBy: userId,
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -89,8 +114,6 @@ export async function markAllMessagesAsDelivered(req, res, next) {
   try {
     const userId = req.user;
 
-
-    // ✅ Find all active chats for this user
     const userChats = await UserChat.find({
       userId: userId,
       isActive: true
@@ -98,13 +121,20 @@ export async function markAllMessagesAsDelivered(req, res, next) {
 
     const chatIds = userChats.map(uc => uc.chatId);
 
-    // ✅ Find ALL undelivered messages across all chats
+    const chats = await Chat.find({
+      _id: { $in: chatIds }
+    }).select("_id members");
+
+    const chatMemberCount = {};
+    chats.forEach(chat => {
+      chatMemberCount[chat._id.toString()] = chat.members.length;
+    });
+
     const messages = await Message.find({
       chat: { $in: chatIds },
       sender: { $ne: userId },
-      deliveredTo: { $nin: [userId] }  // Not already delivered
+      deliveredTo: { $nin: [userId] }
     }).lean();
-
 
     if (messages.length === 0) {
       return res.status(200).json({
@@ -116,41 +146,62 @@ export async function markAllMessagesAsDelivered(req, res, next) {
 
     const messageIds = messages.map(m => m._id);
 
-    // ✅ Update all messages in one query
+    // Add to deliveredTo
     await Message.updateMany(
       { _id: { $in: messageIds } },
-      {
-        $addToSet: { deliveredTo: userId },
-        $set: { status: "delivered" }
-      }
+      { $addToSet: { deliveredTo: userId } }
     );
 
+    // Check which are fully delivered
+    const updatedMessages = await Message.find({
+      _id: { $in: messageIds }
+    }).select("chat deliveredTo sender");
 
-    // ✅ Group messages by chat and sender for socket events
-    const messagesByChatSender = {};
+    const fullyDeliveredIds = updatedMessages
+      .filter(msg => {
+        const totalMembers = chatMemberCount[msg.chat.toString()] || 2;
+        const requiredCount = totalMembers - 1;
+        return msg.deliveredTo.length >= requiredCount;
+      })
+      .map(msg => msg._id);
 
-    messages.forEach(msg => {
-      const key = `${msg.chat}_${msg.sender}`;
-      if (!messagesByChatSender[key]) {
-        messagesByChatSender[key] = {
-          chatId: msg.chat.toString(),
-          senderId: msg.sender.toString(),
-          messageIds: []
-        };
-      }
-      messagesByChatSender[key].messageIds.push(msg._id);
-    });
+    // Update status only for fully delivered
+    if (fullyDeliveredIds.length > 0) {
+      await Message.updateMany(
+        { _id: { $in: fullyDeliveredIds } },
+        { $set: { status: "delivered" } }
+      );
+    }
 
-    // ✅ Emit socket events to each sender
-    Object.values(messagesByChatSender).forEach(({ chatId, senderId, messageIds }) => {
-      
-      emitEvent(req, MESSAGE_DELIVERED, [{ _id: senderId }], {
-        chatId,
-        messageIds,
-        deliveredBy: userId,
-        deliveredAt: new Date()
+    // ✅ FIX: Only emit for FULLY delivered messages
+    if (fullyDeliveredIds.length > 0) {
+      const fullyDeliveredMessages = updatedMessages.filter(msg =>
+        fullyDeliveredIds.some(id => id.equals(msg._id))
+      );
+
+      const messagesByChatSender = {};
+
+      fullyDeliveredMessages.forEach(msg => {
+        const key = `${msg.chat}_${msg.sender}`;
+        if (!messagesByChatSender[key]) {
+          messagesByChatSender[key] = {
+            chatId: msg.chat.toString(),
+            senderId: msg.sender.toString(),
+            messageIds: []
+          };
+        }
+        messagesByChatSender[key].messageIds.push(msg._id);
       });
-    });
+
+      Object.values(messagesByChatSender).forEach(({ chatId, senderId, messageIds }) => {
+        emitEvent(req, MESSAGE_DELIVERED, [{ _id: senderId }], {
+          chatId,
+          messageIds,
+          deliveredBy: userId,
+          deliveredAt: new Date()
+        });
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -171,14 +222,16 @@ export async function markMessagesAsRead(req, res, next) {
     const { chatId } = req.params;
     const userId = req.user;
 
+    const chat = await Chat.findById(chatId).select("members");
+    if (!chat) {
+      return res.status(200).json({ success: true, count: 0 });
+    }
 
-    // ✅ SIMPLE QUERY
     const messages = await Message.find({
       chat: chatId,
       sender: { $ne: userId },
       readBy: { $nin: [userId] },
     }).lean();
-
 
     if (messages.length === 0) {
       return res.status(200).json({ success: true, count: 0 });
@@ -186,17 +239,50 @@ export async function markMessagesAsRead(req, res, next) {
 
     const messageIds = messages.map((m) => m._id);
 
-    // ✅ SIMPLE UPDATE
+    // Add to both arrays
     await Message.updateMany(
       { _id: { $in: messageIds } },
       {
         $addToSet: {
           deliveredTo: userId,
           readBy: userId,
-        },
-        $set: { status: "read" },
+        }
       }
     );
+
+    // Check which should be updated
+    const totalMembers = chat.members.length;
+    const requiredCount = totalMembers - 1;
+
+    const updatedMessages = await Message.find({
+      _id: { $in: messageIds }
+    }).select("readBy deliveredTo status sender");
+
+    const fullyReadIds = [];
+    const fullyDeliveredIds = [];
+
+    updatedMessages.forEach(msg => {
+      if (msg.readBy.length >= requiredCount) {
+        fullyReadIds.push(msg._id);
+      } else if (msg.deliveredTo.length >= requiredCount && msg.status === "sent") {
+        fullyDeliveredIds.push(msg._id);
+      }
+    });
+
+    // Update statuses
+    if (fullyReadIds.length > 0) {
+      await Message.updateMany(
+        { _id: { $in: fullyReadIds } },
+        { $set: { status: "read" } }
+      );
+    }
+
+    if (fullyDeliveredIds.length > 0) {
+      await Message.updateMany(
+        { _id: { $in: fullyDeliveredIds } },
+        { $set: { status: "delivered" } }
+      );
+    }
 
     // Reset unread count
     await UserChat.findOneAndUpdate(
@@ -204,15 +290,39 @@ export async function markMessagesAsRead(req, res, next) {
       { unreadCount: 0 }
     );
 
-    const senders = [...new Set(messages.map((m) => String(m.sender)))].map(
-      (id) => ({ _id: id })
-    );
+    // ✅ FIX: Only emit MESSAGE_READ for fully read messages
+    if (fullyReadIds.length > 0) {
+      const fullyReadMessages = updatedMessages.filter(msg =>
+        fullyReadIds.some(id => id.equals(msg._id))
+      );
 
-    emitEvent(req, MESSAGE_READ, senders, {
-      chatId,
-      messageIds,
-      readBy: userId,
-    });
+      const senders = [...new Set(fullyReadMessages.map(m => String(m.sender)))].map(
+        (id) => ({ _id: id })
+      );
+
+      emitEvent(req, MESSAGE_READ, senders, {
+        chatId,
+        messageIds: fullyReadIds,  // ✅ Only fully read IDs
+        readBy: userId,
+      });
+    }
+
+    // ✅ NEW: Emit MESSAGE_DELIVERED for messages that became fully delivered
+    if (fullyDeliveredIds.length > 0) {
+      const fullyDeliveredMessages = updatedMessages.filter(msg =>
+        fullyDeliveredIds.some(id => id.equals(msg._id))
+      );
+
+      const senders = [...new Set(fullyDeliveredMessages.map(m => String(m.sender)))].map(
+        (id) => ({ _id: id })
+      );
+
+      emitEvent(req, MESSAGE_DELIVERED, senders, {
+        chatId,
+        messageIds: fullyDeliveredIds,
+        deliveredBy: userId,
+      });
+    }
 
     emitEvent(req, UNREAD_COUNT_UPDATED, [{ _id: userId }], {
       chatId,
