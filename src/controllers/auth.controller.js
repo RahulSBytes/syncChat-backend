@@ -22,15 +22,14 @@ export async function registerUser(req, res, next) {
       return next(new customError("user with same username exists", 409));
   }
 
-  const result = [
-    {
-      public_id: "3287348e-d90e-4bf7-9a19-c2febc9d1927",
-      url: "https://res.cloudinary.com/dgmgecezm/image/upload/v1757299608/3287348e-d90e-4bf7-9a19-c2febc9d1927.jpg",
-    },
-  ];
+  // const result = [
+  //   {
+  //     public_id: "3287348e-d90e-4bf7-9a19-c2febc9d1927",
+  //     url: "https://res.cloudinary.com/dgmgecezm/image/upload/v1757299608/3287348e-d90e-4bf7-9a19-c2febc9d1927.jpg",
+  //   },
+  // ];
 
-  // const result = await uploadFilesToCloudinary([req.file]);
-  //   // console.log("cloudinary result :: ", result);
+  const result = await uploadFilesToCloudinary([req.file]);
 
   const createdUser = await User.create({
     username,
@@ -41,7 +40,6 @@ export async function registerUser(req, res, next) {
     avatar: result[0],
   });
 
-  // console.log("saved user data ::", createdUser);
   sendToken(res, createdUser);
 }
 
@@ -56,9 +54,7 @@ export async function loginUser(req, res, next) {
   if (!isMatched)
     return next(new customError("something went wrong logging in", 404));
 
-  // console.log(user)
   sendToken(res, user);
-  // res.status(200).json(user);
 }
 
 export async function logoutUser(req, res) {

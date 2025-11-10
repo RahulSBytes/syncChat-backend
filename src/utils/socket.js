@@ -9,10 +9,8 @@ const socketHandler = (io) => {
   io.on("connection", (socket) => {
     const userId = String(socket.user._id);
 
-    // Keep your single-id map if other code relies on it
     userSocketIDs.set(userId, socket.id);
 
-    // Track all sockets for this user (multi-tab/device safe)
     let sockets = userSockets.get(userId);
     const wasOnline = !!sockets && sockets.size > 0;
 
@@ -56,20 +54,16 @@ const socketHandler = (io) => {
       if (set) {
         set.delete(socket.id);
 
-        // Keep userSocketIDs pointing to a live socket if any
         if (userSocketIDs.get(userId) === socket.id) {
-          // pick any remaining socket as the primary
           const [anyRemaining] = set.values();
           if (anyRemaining) userSocketIDs.set(userId, anyRemaining);
           else userSocketIDs.delete(userId);
         }
 
-        // If this was the last socket, user goes offline
         if (set.size === 0) {
           userSockets.delete(userId);
           onlineUsers.delete(userId);
           
-          // ✅ FIX: Emit to ALL connected users (not just the disconnecting socket)
           io.emit(ONLINE_USERS, Array.from(onlineUsers));
         }
       }

@@ -20,13 +20,12 @@ import {
   markMessagesAsDelivered,
   markMessagesAsRead,
   markAllMessagesAsDelivered,
-  getUnreadCount,
+  getUnreadCounts,
 } from "../controllers/chat.controller.js";
 import isAuthenticated from "../middleware/isAuthenticated.js";
 import { attachmentFiles, singleAvatar } from "../middleware/multer.js";
 import { asyncWrapper } from "../middleware/error.js";
 import { checkIfChatBlockedMiddleware } from "../middleware/checkBlocked.js";
-// import { checkIfChatBlockedMiddleware } from "../middleware/checkBlocked.js";
 const router = express.Router();
 
 router.use(isAuthenticated);
@@ -51,7 +50,7 @@ router.post("/:chatId/block", blockChat);
 router.post("/:chatId/unblock", unblockChat);
 router.put("/delivered/:chatId", markMessagesAsDelivered);
 router.put("/read/:chatId", markMessagesAsRead);
-router.get("/unread-count", getUnreadCount);
+router.get("/unread-counts", getUnreadCounts);
 
 
 export default router;

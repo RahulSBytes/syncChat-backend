@@ -1,6 +1,5 @@
 const userSocketIDs = new Map();
 
-// a function to emit events in server-side
 const emitEvent = (req, event, users, data) => {
   const io = req.app.get("io");
   const usersSocket = getSockets(users);
@@ -12,7 +11,5 @@ export const getSockets = (users = []) => {
   const sockets = users.map((user) => userSocketIDs.get(user._id.toString()));
   return sockets;
 };
-
-// console.log("fggff",getSockets())
 
 export { emitEvent, userSocketIDs };

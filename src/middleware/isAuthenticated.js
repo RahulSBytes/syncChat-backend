@@ -7,7 +7,7 @@ export default function isAuthenticated(req, res, next) {
   if (!token)
     return next(new customError("you need to login to access this route", 404));
   const decoded = Jwt.verify(token, process.env.JWT_SECRET);
-  req.user = decoded._id; // now authenticated route will be have the access to the current user's id
+  req.user = decoded._id; 
   next();
 }
 

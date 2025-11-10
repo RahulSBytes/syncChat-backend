@@ -25,7 +25,6 @@ const userChatSchema = new mongoose.Schema(
     },
     lastMessageTime: Date,
 
-    // still a member of the group or not
     isActive: {
       type: Boolean,
       default: true,
@@ -45,22 +44,14 @@ const userChatSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // ✅ Last read message (for tracking)
     lastReadMessageId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Message",
     },
-
-    // // Bonus: other user-specific data
-    // unreadCount: { type: Number, default: 0 },
-    // isPinned: { type: Boolean, default: false },
-    // isMuted: { type: Boolean, default: false },
-    // isArchived: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
-// Compound index for fast lookups
 userChatSchema.index({ userId: 1, chatId: 1 }, { unique: true });
 userChatSchema.index({ userId: 1, lastMessageTime: -1 });
 

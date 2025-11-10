@@ -29,9 +29,6 @@ import ChatRequest from "../models/chatrequest.model.js";
 import { emitEvent } from "../utils/socketHelpers.js";
 import mongoose from "mongoose";
 
-// tick features
-
-// controllers/message.controller.js
 
 export async function markMessagesAsDelivered(req, res, next) {
   try {
@@ -55,13 +52,12 @@ export async function markMessagesAsDelivered(req, res, next) {
 
     const messageIds = messages.map((m) => m._id);
 
-    // Add to deliveredTo
+    //TODO:: Add deliveredTo
     await Message.updateMany(
       { _id: { $in: messageIds } },
       { $addToSet: { deliveredTo: userId } }
     );
 
-    // Check which messages are fully delivered
     const totalMembers = chat.members.length;
     const requiredCount = totalMembers - 1;
 
@@ -73,7 +69,6 @@ export async function markMessagesAsDelivered(req, res, next) {
       .filter(msg => msg.deliveredTo.length >= requiredCount)
       .map(msg => msg._id);
 
-    // Update status only for fully delivered
     if (fullyDeliveredIds.length > 0) {
       await Message.updateMany(
         { _id: { $in: fullyDeliveredIds } },
@@ -81,7 +76,6 @@ export async function markMessagesAsDelivered(req, res, next) {
       );
     }
 
-    // ✅ FIX: Only emit for FULLY delivered messages
     if (fullyDeliveredIds.length > 0) {
       const fullyDeliveredMessages = updatedMessages.filter(msg =>
         fullyDeliveredIds.some(id => id.equals(msg._id))
@@ -93,7 +87,7 @@ export async function markMessagesAsDelivered(req, res, next) {
 
       emitEvent(req, MESSAGE_DELIVERED, senders, {
         chatId,
-        messageIds: fullyDeliveredIds,  // ✅ Only fully delivered IDs
+        messageIds: fullyDeliveredIds,  
         deliveredBy: userId,
       });
     }
@@ -103,13 +97,12 @@ export async function markMessagesAsDelivered(req, res, next) {
       count: messages.length,
     });
   } catch (error) {
-    console.error("❌ Mark delivered error:", error);
+    console.error("Mark delivered error:", error);
     next(error);
   }
 }
 
 
-// controllers/message.controller.js - ADD THIS
 export async function markAllMessagesAsDelivered(req, res, next) {
   try {
     const userId = req.user;
@@ -146,13 +139,11 @@ export async function markAllMessagesAsDelivered(req, res, next) {
 
     const messageIds = messages.map(m => m._id);
 
-    // Add to deliveredTo
     await Message.updateMany(
       { _id: { $in: messageIds } },
       { $addToSet: { deliveredTo: userId } }
     );
 
-    // Check which are fully delivered
     const updatedMessages = await Message.find({
       _id: { $in: messageIds }
     }).select("chat deliveredTo sender");
@@ -165,7 +156,6 @@ export async function markAllMessagesAsDelivered(req, res, next) {
       })
       .map(msg => msg._id);
 
-    // Update status only for fully delivered
     if (fullyDeliveredIds.length > 0) {
       await Message.updateMany(
         { _id: { $in: fullyDeliveredIds } },
@@ -173,7 +163,6 @@ export async function markAllMessagesAsDelivered(req, res, next) {
       );
     }
 
-    // ✅ FIX: Only emit for FULLY delivered messages
     if (fullyDeliveredIds.length > 0) {
       const fullyDeliveredMessages = updatedMessages.filter(msg =>
         fullyDeliveredIds.some(id => id.equals(msg._id))
@@ -215,7 +204,6 @@ export async function markAllMessagesAsDelivered(req, res, next) {
   }
 }
 
-// controllers/message.controller.js   
 
 export async function markMessagesAsRead(req, res, next) {
   try {
@@ -239,7 +227,6 @@ export async function markMessagesAsRead(req, res, next) {
 
     const messageIds = messages.map((m) => m._id);
 
-    // Add to both arrays
     await Message.updateMany(
       { _id: { $in: messageIds } },
       {
@@ -250,7 +237,6 @@ export async function markMessagesAsRead(req, res, next) {
       }
     );
 
-    // Check which should be updated
     const totalMembers = chat.members.length;
     const requiredCount = totalMembers - 1;
 
@@ -269,7 +255,6 @@ export async function markMessagesAsRead(req, res, next) {
       }
     });
 
-    // Update statuses
     if (fullyReadIds.length > 0) {
       await Message.updateMany(
         { _id: { $in: fullyReadIds } },
@@ -284,13 +269,11 @@ export async function markMessagesAsRead(req, res, next) {
       );
     }
 
-    // Reset unread count
     await UserChat.findOneAndUpdate(
       { userId, chatId },
       { unreadCount: 0 }
-    );
+    )
 
-    // ✅ FIX: Only emit MESSAGE_READ for fully read messages
     if (fullyReadIds.length > 0) {
       const fullyReadMessages = updatedMessages.filter(msg =>
         fullyReadIds.some(id => id.equals(msg._id))
@@ -302,12 +285,12 @@ export async function markMessagesAsRead(req, res, next) {
 
       emitEvent(req, MESSAGE_READ, senders, {
         chatId,
-        messageIds: fullyReadIds,  // ✅ Only fully read IDs
+        messageIds: fullyReadIds,  
         readBy: userId,
       });
     }
 
-    // ✅ NEW: Emit MESSAGE_DELIVERED for messages that became fully delivered
+   
     if (fullyDeliveredIds.length > 0) {
       const fullyDeliveredMessages = updatedMessages.filter(msg =>
         fullyDeliveredIds.some(id => id.equals(msg._id))
@@ -339,85 +322,55 @@ export async function markMessagesAsRead(req, res, next) {
   }
 }
 
-// controllers/message.controller.js
 
-export async function getUndeliveredCount(req, res, next) {
+
+export async function getUnreadCounts(req, res, next) {
   try {
     const userId = req.user;
 
-    const count = await Message.countDocuments({
-      sender: { $ne: userId },
-      "deliveredTo.userId": { $ne: userId },
-    });
-
-    return res.status(200).json({ success: true, count });
-  } catch (error) {
-    next(error);
-  }
-}
-
-// controllers/message.controller.js
-
-export async function getUnreadCount(req, res, next) {
-  try {
-    const userId = req.user;
-
-    // ✅ Get total unread across all chats
-    const result = await UserChat.aggregate([
-      {
-        $match: {
-          userId: new mongoose.Types.ObjectId(userId),
-          isActive: true,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          totalUnread: { $sum: "$unreadCount" },
-        },
-      },
-    ]);
-
-    const totalUnread = result[0]?.totalUnread || 0;
-
-    // ✅ Get per-chat unread counts
-    const chatUnreads = await UserChat.find({
-      userId,
+    const userChats = await UserChat.find({
+      userId: userId,
       isActive: true,
-      unreadCount: { $gt: 0 },
-    }).select("chatId unreadCount");
+      unreadCount: { $gt: 0 }
+    })
+    .select("chatId unreadCount")
+    .lean();
+
+    const unreadCounts = {};
+    let totalUnread = 0;
+
+    userChats.forEach(uc => {
+      unreadCounts[uc.chatId.toString()] = uc.unreadCount;
+      totalUnread += uc.unreadCount;
+    });
 
     return res.status(200).json({
       success: true,
-      totalUnread,
-      chatUnreads,
+      unreadCounts,  
+      totalUnread
     });
+
   } catch (error) {
-    console.error("Get unread count error:", error);
+    console.error("Get unread counts error:", error);
     next(error);
   }
 }
 
-// blocking feature
 
-// Block a chat (for current user)
 export async function blockChat(req, res, next) {
   try {
     const { chatId } = req.params;
     const userId = req.user;
 
-    // Check if chat exists
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return next(new customError("Chat not found", 404));
     }
 
-    // Check if user is member of this chat
     if (!chat.members.includes(userId)) {
       return next(new customError("You are not a member of this chat", 403));
     }
 
-    // Update UserChat to mark as blocked
     const userChat = await UserChat.findOneAndUpdate(
       { userId, chatId },
       {
@@ -455,13 +408,11 @@ export async function unblockChat(req, res, next) {
     const { chatId } = req.params;
     const userId = req.user;
 
-    // Check if chat exists
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return next(new customError("Chat not found", 404));
     }
 
-    // Check if user is member of this chat
     if (!chat.members.includes(userId)) {
       return next(new customError("You are not a member of this chat", 403));
     }
@@ -497,7 +448,6 @@ export async function unblockChat(req, res, next) {
   }
 }
 
-// blocking feature ends
 
 export async function deleteForMe(req, res, next) {
   try {
@@ -652,7 +602,7 @@ export async function deleteForEveryone(req, res, next) {
     });
 
     const updatePromises = userChats.map(async (uc) => {
-      // Get preview after deletion (will show "This message was deleted")
+     
       const text = getLastMessagePreview(message, uc.userId);
 
       if (!text) {
@@ -662,13 +612,11 @@ export async function deleteForEveryone(req, res, next) {
 
       return UserChat.findByIdAndUpdate(uc._id, {
         "lastMessage.message": text,
-        // Keep same messageId and time
       });
     });
 
     await Promise.all(updatePromises);
 
-    // Emit to ALL members
     emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
       chatId,
       lastMessageObj: {
@@ -677,18 +625,7 @@ export async function deleteForEveryone(req, res, next) {
       },
     });
 
-    // if (areIdsEqual(message._id, chat.lastMessage.messageId)) {
-    //   let text;
-    //   text = getLastMessagePreview(message, req.user);
-    //   if (!text) return console.log("some error occured deleting for everyone");
 
-    //   chat.lastMessage = { messageId: message._id, message: text };
-    //   chat.save();
-    //   emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
-    //     chatId,
-    //     lastMessageObj: chat.lastMessage,
-    //   });
-    // }
 
     emitEvent(
       req,
@@ -708,14 +645,11 @@ export async function deleteForEveryone(req, res, next) {
 }
 
 export async function getAllMessagesOfAchat(req, res, next) {
-  // const { chatId, page = 1 } = req.body;
   const { id: chatId } = req.params;
 
   if (!chatId) return next(new customError("chatId id required", 400));
 
-  // const resultPerPage = 20;
-
-  // const skip = (page - 1) * resultPerPage;
+  // TODO :: pagination
 
   const messages = await Message.find({ chat: chatId })
     .populate("sender", "username fullName avatar")
@@ -734,7 +668,6 @@ export async function clearChat(req, res, next) {
     const { chatId } = req.params;
     if (!chatId) return next(new customError("chat id is required", 404));
 
-    // ✅ Check membership via UserChat (more accurate)
     const userChat = await UserChat.findOne({
       userId: req.user,
       chatId: chatId,
@@ -746,17 +679,13 @@ export async function clearChat(req, res, next) {
       );
     }
 
-    // Get all messages in this chat
     const messages = await Message.find({ chat: chatId });
 
-    // ✅ Update each message individually to handle nested arrays correctly
     const updatePromises = messages.map(async (message) => {
-      // Add user to textDeletedFor if not already there
       if (!message.textDeletedFor.includes(req.user)) {
         message.textDeletedFor.push(req.user);
       }
 
-      // Add user to each attachment's deletedFor array
       if (message.attachments && message.attachments.length > 0) {
         message.attachments.forEach((attachment) => {
           if (!attachment.deletedFor.includes(req.user)) {
@@ -792,7 +721,6 @@ export async function clearChat(req, res, next) {
   }
 }
 
-// ############----- create a chat
 
 export async function createGroupChat(req, res, next) {
   try {
@@ -841,11 +769,9 @@ export async function createGroupChat(req, res, next) {
   }
 }
 
-// ############----- Get all chats of a user
 
 export async function getMyChats(req, res, next) {
   try {
-    // Get user's chat relationships with their personalized last messages
     const userChats = await UserChat.find({ userId: req.user })
       .populate({
         path: "chatId",
@@ -869,7 +795,6 @@ export async function getMyChats(req, res, next) {
       return next(new customError("Error fetching chats", 400));
     }
 
-    // Transform to include user-specific last message
     const chats = userChats.map((uc) => ({
       ...uc.chatId,
       lastMessage: uc.lastMessage,
@@ -897,22 +822,18 @@ export async function findUsers(req, res, next) {
   try {
     const query = req.query.q?.trim();
 
-    // Return empty array for empty queries instead of error
     if (!query) {
       return res.status(200).json([]);
     }
 
-    // Add minimum query length to prevent too broad searches
     if (query.length < 2) {
       return res.status(200).json([]);
     }
 
-    // Add cache control headers to prevent caching issues
     res.set("Cache-Control", "no-cache, no-store, must-revalidate");
     res.set("Pragma", "no-cache");
     res.set("Expires", "0");
 
-    // Get only one-on-one chats (groupChat: false or not set)
     const oneOnOneChats = await Chat.find(
       {
         members: { $in: [req.user] },
@@ -929,15 +850,13 @@ export async function findUsers(req, res, next) {
       el.receiver.toString()
     );
 
-    // Extract user IDs from one-on-one chats only
     const directChatUserIds = oneOnOneChats.flatMap(
       (chat) =>
         chat.members
           .filter((id) => id.toString() !== req.user.toString())
-          .map((id) => id.toString()) // Ensure string comparison
+          .map((id) => id.toString()) 
     );
 
-    // Exclude: direct chat users, pending request receivers, and current user
     const excludedIds = [
       ...directChatUserIds,
       ...pendingRequestReceivers,
@@ -961,7 +880,7 @@ export async function findUsers(req, res, next) {
         { _id: { $nin: excludedIds } },
       ],
     })
-      .select("username email fullName avatar") // Only select needed fields
+      .select("username email fullName avatar") 
       .limit(20)
       .lean();
 
@@ -1121,11 +1040,6 @@ export async function removeMember(req, res, next) {
       members: updatedChat.members,
     });
 
-    // Notify removed member
-    // emitEvent(req, REFETCH_CHATS, [{ _id: memberId }], {
-    //   chatId,
-    //   removed: true,
-    // });
 
     return res.status(200).json({
       success: true,
@@ -1313,12 +1227,10 @@ export async function sendMessage(req, res, next) {
 
     const lastMessagePreview = getLastMessagePreview(message);
 
-    // ✅ Separate members: sender vs recipients
     const recipients = chat.members.filter(
       (memberId) => !areIdsEqual(memberId, me._id)
     );
 
-    // Update lastMessage for ALL chat members in UserChat collection
     const updatePromises = chat.members.map((memberId) =>
       UserChat.findOneAndUpdate(
         { userId: memberId, chatId: chatId },
@@ -1348,10 +1260,8 @@ export async function sendMessage(req, res, next) {
       },
     };
 
-    // ✅ Emit to all members - new message
     emitEvent(req, NEW_MESSAGE, chat.members, messageForRealTime);
 
-    // ✅ Emit last message update to all members
     emitEvent(req, UPDATE_LAST_MESSAGE, chat.members, {
       chatId,
       lastMessageObj: {
@@ -1361,7 +1271,6 @@ export async function sendMessage(req, res, next) {
       lastMessageTime: message.createdAt,
     });
 
-    // ✅ NEW: Emit unread count update to recipients only
     if (recipients.length > 0) {
       emitEvent(req, UPDATE_UNREAD_COUNT, recipients, {
         chatId,
@@ -1435,7 +1344,6 @@ export async function getChatDetail(req, res, next) {
   });
 }
 
-// ############-----deletechat
 
 export async function deleteChat(req, res, next) {
   const { chatId } = req.body;

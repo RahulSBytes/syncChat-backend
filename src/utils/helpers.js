@@ -17,7 +17,7 @@ function sendToken(res, savedUserData) {
     success: true,
     token,
     savedUserData,
-  }); // sending the response as well as setting the cookie
+  }); 
 }
 
 const getSockets = (users = []) => {
@@ -25,7 +25,7 @@ const getSockets = (users = []) => {
   return sockets;
 };
 
-// Convert file buffer to base64 string
+
 const getBase64 = (file) => {
   return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 };
@@ -107,13 +107,12 @@ function modifyMessage(messages, userId) {
       (u) => String(u) === String(userId)
     );
 
-    // Filter out only the attachments that current user shouldn't see.
-    // Keep ones deletedForEveryone so UI can show placeholder.
+    
     const filteredAttachments = (msg.attachments || []).filter((att) => {
       const deletedForUser = att.deletedFor?.some(
         (u) => String(u) === String(userId)
       );
-      // Hide if specifically deleted for this user
+     
       return !deletedForUser;
     });
 
@@ -132,12 +131,11 @@ function modifyMessage(messages, userId) {
       textDeletedForEveryone: msg.textDeletedForEveryone,
       textDeletedFor: msg.textDeletedFor,
 
-      // pass attachments through as‑is (with deletedForEveryone flag)
+     
       attachments: filteredAttachments,
-      // decide what to show for text
       text:
         msg.textDeletedForEveryone || isTextDeletedForMe
-          ? "" // backend blanked text content
+          ? "" 
           : msg.text,
     };
   });
@@ -148,28 +146,20 @@ const areIdsEqual = (id1, id2) => id1?.toString() === id2?.toString();
 function getLastMessagePreview(message, userId) {
   const { text, textDeletedForEveryone, textDeletedFor, attachments } = message;
 
-  // Check if text is visible to user
   const textVisible =
     text && !textDeletedForEveryone && !textDeletedFor.includes(userId);
 
-  // Check if any attachment is visible to user
   const anyAttachmentVisible = attachments.some(
     (a) => !a.deletedForEveryone && !a.deletedFor.includes(userId)
   );
 
-  // ✅ Priority 1: Show text if visible
   if (textVisible) return text;
 
-  // ✅ Priority 2: Show "Attachment" if any attachment is visible
   if (anyAttachmentVisible) return "Attachment";
-
-  // ✅ At this point, nothing is visible to the user
-  // Check if anything was deleted for everyone
   if (textDeletedForEveryone || attachments.some((a) => a.deletedForEveryone)) {
     return "This message was deleted";
   }
 
-  // ✅ Everything was only deleted for this specific user
   return false;
 }
 

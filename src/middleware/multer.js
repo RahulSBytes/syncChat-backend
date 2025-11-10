@@ -8,7 +8,6 @@ const multerUpload = multer({
   },
 });
 
-  console.log("reached multer setup...")
 
 const singleAvatar = multerUpload.single("avatar");
 const attachmentFiles = multerUpload.array("files");

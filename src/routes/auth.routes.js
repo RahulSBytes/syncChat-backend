@@ -7,7 +7,6 @@ import {
 import { validateSignin } from "../middleware/auth.middleware.js";
 import { singleAvatar } from "../middleware/multer.js";
 import { asyncWrapper } from "../middleware/error.js";
-// import isAuthenticated from "../middleware/isAuthenticated.js";
 
 const router = express.Router();
 

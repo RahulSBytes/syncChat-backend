@@ -10,6 +10,7 @@ import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import messageRoutes from "./routes/message.routes.js";
+import preferencesRoutes from "./routes/preferencesRoutes.js";
 import connectDB from "./utils/db.js";
 import cors from "cors";
 import { createServer } from "http";
@@ -30,13 +31,8 @@ const port = process.env.PORT || 5000;
 export const envMode = process.env.NODE_ENV.trim() || "PRODUCTION";
 export const userSocketIDs = new Map();
 
-// ------ Database connection
-// console.log(process.env.MONGODB_URL)
 connectDB(process.env.MONGODB_URL);
 
-// createSingleChats(50)
-// createGroupChats(30)
-// createUserChatsWithProgress()
 
 app.use(cors(corsOptions));
 
@@ -53,6 +49,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/chats", chatRoutes);
 app.use("/api/v1/messages", messageRoutes);
+app.use("/api/v1/preferences", preferencesRoutes);
 
 const io = new Server(server, {
   cors: corsOptions,

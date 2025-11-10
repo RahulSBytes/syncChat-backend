@@ -1,12 +1,12 @@
 import jwt from "jsonwebtoken";
-import User from "../models/user.model.js"; // Adjust path to your User model
+import User from "../models/user.model.js"; 
 import { customError } from "./error.js";
 
 const socketAuthenticator = async (err, socket, next) => {
   try {
     if (err) throw err;
-    // console.log("socket request",socket.request.cookies['synqchat-token'])
-    const token = socket.request.cookies["synqchat-token"]; // Adjust based on your auth setup
+    
+    const token = socket.request.cookies["synqchat-token"]; 
 
     if (!token) next(new customError("No authentication token provided", 400));
 
