@@ -4,16 +4,20 @@ import { customError } from "./error.js";
 
 const socketAuthenticator = async (err, socket, next) => {
   try {
-    if (err) throw err;
+    if (err) return next(err);
     
     const token = socket.request.cookies["synqchat-token"]; 
 
-    if (!token) next(new customError("No authentication token provided", 400));
+     if (!token) {
+      return next(new customError("No authentication token provided", 400)); // ✅ Add return
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded._id); 
 
-    if (!user) next(new customError("user not found", 404));
+    if (!user) {
+      return next(new customError("user not found", 404)); // ✅ Add return
+    }
 
     socket.user = {
       _id: user._id,
@@ -25,10 +29,10 @@ const socketAuthenticator = async (err, socket, next) => {
       fullName: user.fullName,
     };
 
-    next();
+  return next();
   } catch (error) {
     console.error("Socket authentication failed:", error);
-    next(new customError("authentication failed", 401));
+  return next(new customError("authentication failed", 401));
   }
 };
 

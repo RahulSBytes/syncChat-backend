@@ -80,7 +80,7 @@ const userPreferencesSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-userPreferencesSchema.index({ userId: 1 });
+// userPreferencesSchema.index({ userId: 1 });
 
 const UserPreferences = mongoose.model(
   "UserPreferences",

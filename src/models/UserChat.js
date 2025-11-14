@@ -52,8 +52,8 @@ const userChatSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-userChatSchema.index({ userId: 1, chatId: 1 }, { unique: true });
-userChatSchema.index({ userId: 1, lastMessageTime: -1 });
+// userChatSchema.index({ userId: 1, chatId: 1 }, { unique: true });
+// userChatSchema.index({ userId: 1, lastMessageTime: -1 });
 
 const UserChat = mongoose.model("UserChat", userChatSchema);
 export default UserChat;

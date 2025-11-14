@@ -6,7 +6,6 @@ import {
   uploadFilesToCloudinary,
 } from "../utils/helpers.js";
 import { customError } from "../middleware/error.js";
-import mongoose from "mongoose";
 
 export async function registerUser(req, res, next) {
   const { username, fullName, email, bio, password } = req.body;
@@ -16,18 +15,8 @@ export async function registerUser(req, res, next) {
   );
 
   if (isExists) {
-    if (isExists.email == email)
-      return next(new customError("user with same email exists", 409));
-    if (isExists.username == username)
-      return next(new customError("user with same username exists", 409));
+    return next(new customError("user with same credential exists", 409));
   }
-
-  // const result = [
-  //   {
-  //     public_id: "3287348e-d90e-4bf7-9a19-c2febc9d1927",
-  //     url: "https://res.cloudinary.com/dgmgecezm/image/upload/v1757299608/3287348e-d90e-4bf7-9a19-c2febc9d1927.jpg",
-  //   },
-  // ];
 
   const result = await uploadFilesToCloudinary([req.file]);
 
@@ -58,9 +47,8 @@ export async function loginUser(req, res, next) {
 }
 
 export async function logoutUser(req, res) {
-  console.log("reached backend")
   return res.clearCookie("synqchat-token", cookieOptions).status(200).json({
     message: "successfully logged out",
-    success : true
+    success: true,
   });
 }
