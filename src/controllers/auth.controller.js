@@ -18,7 +18,10 @@ export async function registerUser(req, res, next) {
     return next(new customError("user with same credential exists", 409));
   }
 
-  const result = await uploadFilesToCloudinary([req.file]);
+  let result;
+  if(req.file){
+    result = await uploadFilesToCloudinary([req.file]);
+  }
 
   const createdUser = await User.create({
     username,

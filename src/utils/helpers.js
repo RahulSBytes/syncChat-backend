@@ -4,12 +4,16 @@ import { v4 as uuid } from "uuid";
 import { cloudinary } from "../utils/cloudinaryconfig.js";
 import path from "path";
 
+const isProduction = process.env.NODE_ENV === 'PRODUCTION';
+
 const cookieOptions = {
   maxAge: 7 * 24 * 60 * 60 * 1000,
-  sameSite: "lax",
+  sameSite: isProduction ? "none" : "lax", 
   httpOnly: true,
-  secure: false,
+  secure: isProduction, 
+  path: '/', 
 };
+
 
 function sendToken(res, savedUserData) {
   const token = jwt.sign({ _id: savedUserData._id }, process.env.JWT_SECRET);
