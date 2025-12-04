@@ -20,9 +20,6 @@ import socketHandler from "./utils/socket.js";
 import { errorHandlerMiddleware } from "./middleware/error.js";
 import { corsOptions } from "../constants/constants.js";
 import socketAuthenticator from "./middleware/socketAuthenticator.js";
-import { createGroupChats, createSingleChats } from "../seeders/chat.js";
-import { createUserChatsWithProgress } from "../seeders/createuserchat.js";
-
 
 const app = express();
 const server = createServer(app);
@@ -33,13 +30,11 @@ export const userSocketIDs = new Map();
 
 connectDB(process.env.MONGODB_URL);
 
-
 app.use(cors(corsOptions));
 
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
-
 
 app.get("/", (req, res) => {
   res.send("base route");
@@ -57,7 +52,6 @@ const io = new Server(server, {
 
 app.set("io", io);
 
-
 // socket goes here
 io.use((socket, next) => {
   cookieParser()(
@@ -66,7 +60,6 @@ io.use((socket, next) => {
     async (err) => await socketAuthenticator(err, socket, next)
   );
 });
-
 
 socketHandler(io);
 

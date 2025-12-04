@@ -787,7 +787,6 @@ export async function getMyChats(req, res, next) {
           },
         ],
       })
-
       .sort({ lastMessageTime: -1 })
       .lean();
 

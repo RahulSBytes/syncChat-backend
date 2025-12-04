@@ -8,6 +8,9 @@ import {
 import { customError } from "../middleware/error.js";
 
 export async function registerUser(req, res, next) {
+
+  console.log("reached registerUser")
+
   const { username, fullName, email, bio, password } = req.body;
   const isExists = await User.findOne(
     { $or: [{ email }, { username }] },

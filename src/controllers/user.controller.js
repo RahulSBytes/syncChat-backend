@@ -1,8 +1,9 @@
-import { NEW_REQUEST } from "../../constants/events.js";
+import { NEW_REQUEST, REFETCH_CHATS } from "../../constants/events.js";
 import { customError } from "../middleware/error.js";
 import Chat from "../models/chat.model.js";
 import ChatRequest from "../models/chatrequest.model.js";
 import User from "../models/user.model.js";
+import UserChat from "../models/UserChat.js";
 import { emitEvent } from "../utils/socketHelpers.js";
 
 export function getSpecificUser(req, res) {
@@ -100,32 +101,47 @@ export async function sendFriendRequest(req, res, next) {
 }
 
 export async function respondFriendRequest(req, res, next) {
-  const { requestId, accept } = req.body || {};
-  if (!requestId)
-    return next(new customError("must provide reciever's id", 400));
-  
-  const request = await ChatRequest.findById(requestId);
-  if (!request) return next(new customError("request not found", 400));
+  try {
+    const { requestId, accept } = req.body || {};
 
-  if (request.receiver.toString() != req.user.toString())
-    return next(
-      new customError("you aren't allowed to accept/reject the request")
-    );
+    if (!requestId)
+      return next(new customError("must provide reciever's id", 400));
 
-  let message = "";
+    const request = await ChatRequest.findById(requestId);
 
-  if (accept) {
-    await Promise.all([
-      Chat.create({ members: [request.sender, req.user] }),
-      ChatRequest.deleteOne({ _id: requestId }),
-    ]);
-    message = "friend request accepted";
-  } else {
-    await ChatRequest.deleteOne({ _id: requestId });
-    message = "friend request rejected";
+    if (!request) return next(new customError("request not found", 400));
+
+    if (request.receiver.toString() != req.user.toString())
+      return next(
+        new customError("you aren't allowed to accept/reject the request")
+      );
+
+    let message = "";
+
+    if (accept) {
+      const [chat, _] = await Promise.all([
+        Chat.create({ members: [request.sender, req.user] }),
+        ChatRequest.deleteOne({ _id: request._id }),
+      ]);
+
+      const userChatPromises = chat.members.map((memberId) =>
+        UserChat.create({
+          userId: memberId,
+          chatId: chat._id,
+        })
+      );
+      const check = await Promise.all(userChatPromises);
+      message = "friend request accepted";
+    } else {
+      await ChatRequest.deleteOne({ _id: requestId });
+      message = "friend request rejected";
+    }
+
+    emitEvent(req, REFETCH_CHATS, [{ _id: request.sender }, { _id: req.user }]);
+  } catch (error) {
+    console.log("error accepting friend request ::", error);
+    return next(error);
   }
-
-  emitEvent(req, REFETCH_CHATS, [request.sender, req.user]);
 
   return res.status(200).json({
     success: true,
@@ -142,6 +158,7 @@ export async function notifications(req, res, next) {
   if (!data) return next(new customError("error fetching notifications", 200));
 
   return res.status(200).json({
+    message: "responded to the request",
     success: true,
     data: data,
   });
