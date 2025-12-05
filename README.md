@@ -280,28 +280,6 @@ PUT    /api/v1/preferences        # Update preferences
 6. Middleware verifies token
 7. Protected routes accessible
 
-### Cookie Configuration
-```javascript
-{
-  httpOnly: true,      // Prevents XSS attacks
-  secure: true,        // HTTPS only (production)
-  sameSite: 'none',    // Cross-site cookie
-  maxAge: 7 days       // Cookie expiration
-}
-```
-
-## 🌐 CORS Configuration
-
-The backend is configured to accept requests from specified origins:
-```javascript
-origin: [
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'https://synqchatapp.vercel.app',
-  'https://synqchatfrontend.vercel.app'
-]
-credentials: true
-```
 
 ## 🚀 Deployment
 
